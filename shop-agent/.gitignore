@@ -29,8 +29,8 @@ _top_probe.py
 _eye_probe.py
 eye.log
 eye_check*.png
-_preview_probe.py
-_pcard_shot.py
+_preview_probe*.py
+_pcard_shot*.py
 pcard*.png
 pcard.log
 top*.log

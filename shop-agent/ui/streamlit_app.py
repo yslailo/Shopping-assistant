@@ -73,7 +73,8 @@ header[data-testid="stHeader"] { background: transparent !important;
   display: flex; align-items: center; justify-content: center; margin-bottom: 12px; color: #52525b; }
 .card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; min-height: 20px; }
 .pcard { display: flex; gap: 14px; align-items: flex-start; background: #fff;
-  border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+  border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
+  margin-bottom: 12px; }
 .pcard-thumb { width: 60px; height: 60px; flex: none; border-radius: 10px; background: #f6f6f5;
   display: flex; align-items: center; justify-content: center; color: #52525b; }
 .pcard-body { flex: 1; min-width: 0; }
@@ -83,15 +84,16 @@ header[data-testid="stHeader"] { background: transparent !important;
   display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .pcard-side { text-align: right; flex: none; }
 .pcard-price { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
-/* 透明点击热区：隐藏按钮铺满整列，点击图片或标题任意处都进入详情 */
-[data-testid="stColumn"]:has(.pcard) { position: relative; cursor: pointer; }
-[data-testid="stColumn"]:has(.pcard):hover .pcard { border-color: #d4d4d8;
+/* 透明点击热区：只作用于商品条目的 keyed 容器（st-key-pcard-*），
+   不能匹配外层会话列，否则会误伤其它按钮和间距导致条目重叠 */
+[class*="st-key-pcard"] { position: relative; cursor: pointer; }
+[class*="st-key-pcard"] .stVerticalBlock { gap: 0; }
+[class*="st-key-pcard"]:hover .pcard { border-color: #d4d4d8;
   box-shadow: 0 6px 20px rgba(24,24,27,.06); }
-[data-testid="stColumn"]:has(.pcard) .stVerticalBlock { gap: 0; }
-[data-testid="stColumn"]:has(.pcard) div[data-testid="stElementContainer"]:has(div.stButton) {
+[class*="st-key-pcard"] div[data-testid="stElementContainer"]:has(div.stButton) {
   position: absolute; inset: 0; width: auto; height: auto; margin: 0; z-index: 3; }
-[data-testid="stColumn"]:has(.pcard) div.stButton { width: 100%; height: 100%; margin: 0; }
-[data-testid="stColumn"]:has(.pcard) div.stButton > button { width: 100%; height: 100%;
+[class*="st-key-pcard"] div.stButton { width: 100%; height: 100%; margin: 0; }
+[class*="st-key-pcard"] div.stButton > button { width: 100%; height: 100%;
   min-height: 0; padding: 0; border: 0; background: transparent; opacity: 0; cursor: pointer; }
 .rating { color: #a1a1aa; font-size: 11.5px; }
 
@@ -221,8 +223,8 @@ def render_cards(recommendations: list[dict]) -> None:
     if not recommendations:
         return
     for rank, item in enumerate(recommendations, 1):
-        column = st.columns(1)[0]
-        with column:
+        # 带 key 的容器：容器本身获得 st-key-pcard-* 类，点击热区样式只作用于它内部
+        with st.container(key=f"pcard-{rank}-{item['product_id']}"):
             matched = item.get("matched") or []
             tags = "".join(
                 f'<span class="tag accent">{html.escape(t)}</span>' for t in matched[:3]
@@ -242,7 +244,7 @@ def render_cards(recommendations: list[dict]) -> None:
                 """,
                 unsafe_allow_html=True,
             )
-            # 透明热区：按钮经 CSS 隐藏并铺满整列，点击商品行任意位置即打开详情
+            # 透明热区：按钮经 CSS 隐藏并铺满整个条目，点击商品行任意位置即打开详情
             if st.button("打开商品详情", key=f"open-{rank}-{item['product_id']}"):
                 st.session_state.detail_id = item["product_id"]
                 st.rerun()
