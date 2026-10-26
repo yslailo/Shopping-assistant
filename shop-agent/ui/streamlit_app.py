@@ -68,23 +68,32 @@ header[data-testid="stHeader"] { background: transparent !important;
 .msg-bot { font-size: 14.5px; line-height: 1.75; color: #27272a; margin: 10px 0 14px;
   max-width: 92%; white-space: pre-wrap; }
 
-.grid { display: grid; gap: 12px; margin: 6px 0 18px; }
-.card { background: #fff; border: 1px solid var(--line); border-radius: 16px;
-  padding: 14px; display: flex; flex-direction: column;
-  transition: box-shadow .18s ease, border-color .18s ease; }
-.card:hover { box-shadow: 0 8px 24px rgba(24,24,27,.07); border-color: #d4d4d8; }
+/* 商品条目：左图右文，竖向排列，整行点击进入详情 */
 .card-media { height: 84px; border-radius: 12px; background: #f6f6f5;
   display: flex; align-items: center; justify-content: center; margin-bottom: 12px; color: #52525b; }
-.card-title { font-size: 13.5px; font-weight: 550; line-height: 1.45; height: 39px;
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.card-brand { color: var(--muted); font-size: 12px; margin-top: 4px; display: flex;
-  align-items: center; justify-content: space-between; gap: 6px; }
-.card-price { font-size: 15.5px; font-weight: 600; margin-top: 8px; letter-spacing: -0.01em; }
 .card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; min-height: 20px; }
-.card-reason { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 8px;
-  min-height: 34px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pcard { display: flex; gap: 14px; align-items: flex-start; background: #fff;
+  border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.pcard-thumb { width: 60px; height: 60px; flex: none; border-radius: 10px; background: #f6f6f5;
+  display: flex; align-items: center; justify-content: center; color: #52525b; }
+.pcard-body { flex: 1; min-width: 0; }
+.pcard-title { font-size: 14px; font-weight: 550; line-height: 1.45; color: var(--ink); }
+.pcard-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.pcard-reason { font-size: 11.5px; color: var(--muted); line-height: 1.55; margin-top: 5px;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.pcard-side { text-align: right; flex: none; }
+.pcard-price { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+/* 透明点击热区：隐藏按钮铺满整列，点击图片或标题任意处都进入详情 */
+[data-testid="stColumn"]:has(.pcard) { position: relative; cursor: pointer; }
+[data-testid="stColumn"]:has(.pcard):hover .pcard { border-color: #d4d4d8;
+  box-shadow: 0 6px 20px rgba(24,24,27,.06); }
+[data-testid="stColumn"]:has(.pcard) .stVerticalBlock { gap: 0; }
+[data-testid="stColumn"]:has(.pcard) div[data-testid="stElementContainer"]:has(div.stButton) {
+  position: absolute; inset: 0; width: auto; height: auto; margin: 0; z-index: 3; }
+[data-testid="stColumn"]:has(.pcard) div.stButton { width: 100%; height: 100%; margin: 0; }
+[data-testid="stColumn"]:has(.pcard) div.stButton > button { width: 100%; height: 100%;
+  min-height: 0; padding: 0; border: 0; background: transparent; opacity: 0; cursor: pointer; }
 .rating { color: #a1a1aa; font-size: 11.5px; }
-.rank { font-size: 11px; color: var(--muted); letter-spacing: .06em; }
 
 .tag { font-size: 11px; color: #52525b; background: #f4f4f5;
   border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
@@ -208,39 +217,35 @@ def money(value: float) -> str:
 # ---------------------------------------------------------------------------
 
 def render_cards(recommendations: list[dict]) -> None:
-    """把推荐结果渲染成卡片网格，每张卡可点开详情。"""
+    """把推荐结果渲染成竖向商品条目，点击图片/标题任意处进入详情弹窗。"""
     if not recommendations:
         return
-    for start in range(0, len(recommendations), 3):
-        chunk = recommendations[start:start + 3]
-        columns = st.columns(min(3, len(chunk)), gap="small")
-        for offset, item in enumerate(chunk):
-            rank = start + offset + 1
-            with columns[offset]:
-                matched = item.get("matched") or []
-                tags = "".join(
-                    f'<span class="tag accent">{html.escape(t)}</span>' for t in matched[:2]
-                ) or f'<span class="tag">{html.escape(item["category"])}</span>'
-                st.markdown(
-                    f"""
-                    <div class="card">
-                      <div class="card-media">{category_icon(item["category"])}</div>
-                      <div class="rank">NO.{rank}</div>
-                      <div class="card-title">{html.escape(item["name"])}</div>
-                      <div class="card-brand">
-                        <span>{html.escape(item["brand"])}</span>
-                        <span class="rating">{item["rating"]:.1f} 分</span>
-                      </div>
-                      <div class="card-price">{money(item["price"])}</div>
-                      <div class="card-tags">{tags}</div>
-                      <div class="card-reason">{html.escape(item.get("reason") or "")}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button("查看详情", key=f"detail-{rank}-{item['product_id']}"):
-                    st.session_state.detail_id = item["product_id"]
-                    st.rerun()
+    for rank, item in enumerate(recommendations, 1):
+        column = st.columns(1)[0]
+        with column:
+            matched = item.get("matched") or []
+            tags = "".join(
+                f'<span class="tag accent">{html.escape(t)}</span>' for t in matched[:3]
+            ) or f'<span class="tag">{html.escape(item["category"])}</span>'
+            st.markdown(
+                f"""
+                <div class="pcard">
+                  <div class="pcard-thumb">{category_icon(item["category"], size=30)}</div>
+                  <div class="pcard-body">
+                    <div class="pcard-title">{html.escape(item["name"])}</div>
+                    <div class="pcard-meta">第 {rank} 款 · {html.escape(item["brand"])} · {item["rating"]:.1f} 分</div>
+                    <div class="card-tags">{tags}</div>
+                    <div class="pcard-reason">{html.escape(item.get("reason") or "")}</div>
+                  </div>
+                  <div class="pcard-side"><div class="pcard-price">{money(item["price"])}</div></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            # 透明热区：按钮经 CSS 隐藏并铺满整列，点击商品行任意位置即打开详情
+            if st.button("打开商品详情", key=f"open-{rank}-{item['product_id']}"):
+                st.session_state.detail_id = item["product_id"]
+                st.rerun()
 
 
 @st.dialog("商品详情", width="large")
