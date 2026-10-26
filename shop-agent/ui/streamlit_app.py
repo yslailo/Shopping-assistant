@@ -219,13 +219,17 @@ def money(value: float) -> str:
 # 商品卡片
 # ---------------------------------------------------------------------------
 
-def render_cards(recommendations: list[dict]) -> None:
-    """把推荐结果渲染成竖向商品条目，点击图片/标题任意处进入详情弹窗。"""
+def render_cards(recommendations: list[dict], key_prefix: str) -> None:
+    """把推荐结果渲染成竖向商品条目，点击图片/标题任意处进入详情弹窗。
+
+    key_prefix 为所属历史消息的序号：同一条推荐列表里的商品 ID 本就唯一，
+    但历史中多条消息可能推荐同一商品，加消息序号前缀避免跨消息 key 冲突。
+    """
     if not recommendations:
         return
     for rank, item in enumerate(recommendations, 1):
         # 带 key 的容器：容器本身获得 st-key-pcard-* 类，点击热区样式只作用于它内部
-        with st.container(key=f"pcard-{rank}-{item['product_id']}"):
+        with st.container(key=f"pcard-{key_prefix}-{rank}-{item['product_id']}"):
             matched = item.get("matched") or []
             tags = "".join(
                 f'<span class="tag accent">{html.escape(t)}</span>' for t in matched[:3]
@@ -246,7 +250,7 @@ def render_cards(recommendations: list[dict]) -> None:
                 unsafe_allow_html=True,
             )
             # 透明热区：按钮经 CSS 隐藏并铺满整个条目，点击商品行任意位置即打开详情
-            if st.button("打开商品详情", key=f"open-{rank}-{item['product_id']}"):
+            if st.button("打开商品详情", key=f"open-{key_prefix}-{rank}-{item['product_id']}"):
                 st.session_state.detail_id = item["product_id"]
                 st.rerun()
 
@@ -433,12 +437,12 @@ with chat_column:
             if st.button(sample, key=f"sample-{sample}"):
                 send_message(sample)
 
-    for message in st.session_state.messages:
+    for index, message in enumerate(st.session_state.messages):
         if message["role"] == "user":
             st.markdown(f'<div class="msg-user">{html.escape(message["content"])}</div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="msg-bot">{html.escape(message["content"])}</div>', unsafe_allow_html=True)
-            render_cards(message.get("recommendations") or [])
+            render_cards(message.get("recommendations") or [], key_prefix=str(index))
 
 # ---- 右列：购物车 / 订单 / 提醒 / 设置 ----
 with panel_column:
