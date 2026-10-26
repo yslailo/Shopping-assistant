@@ -95,7 +95,6 @@ header[data-testid="stHeader"] { background: transparent !important;
 [class*="st-key-pcard"] div.stButton { width: 100%; height: 100%; margin: 0; }
 [class*="st-key-pcard"] div.stButton > button { width: 100%; height: 100%;
   min-height: 0; padding: 0; border: 0; background: transparent; opacity: 0; cursor: pointer; }
-.rating { color: #a1a1aa; font-size: 11.5px; }
 
 .tag { font-size: 11px; color: #52525b; background: #f4f4f5;
   border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
@@ -113,7 +112,7 @@ header[data-testid="stHeader"] { background: transparent !important;
 .note { background: #fff; border: 1px solid var(--line); border-left: 2px solid var(--accent);
   border-radius: 10px; padding: 10px 14px; font-size: 13px; color: #3f3f46; margin: 6px 0; }
 
-.panel { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 4px 16px 14px; }
+/* 右侧信息面板外观：作用于 st.container(border=True) 的包裹层 */
 div[data-testid="stVerticalBlockBorderWrapper"] > div {
   border: 1px solid var(--line) !important; border-radius: 18px !important; background: #fff; }
 
@@ -121,10 +120,6 @@ div.stButton > button { border-radius: 10px; border: 1px solid var(--line);
   background: #fff; color: #3f3f46; font-size: 12.5px; padding: 5px 10px; width: 100%;
   box-shadow: none; transition: all .16s ease; }
 div.stButton > button:hover { border-color: var(--ink); color: var(--ink); background: #fff; }
-
-.chip-wrap { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 18px; }
-.chip { border: 1px solid var(--line); background: #fff; border-radius: 999px;
-  padding: 7px 14px; font-size: 12.5px; color: #3f3f46; }
 
 div[data-testid="stChatInput"] textarea { font-size: 14px; }
 div[data-testid="stChatInput"] { border-radius: 14px; }
@@ -143,12 +138,6 @@ def icon(name: str, size: int = 18, width: float = 1.6) -> str:
         "cart": '<path d="M3 4h2l2.3 11h10.2l2-8H6"/><circle cx="9.5" cy="18.5" r="1.3"/><circle cx="17" cy="18.5" r="1.3"/>',
         "box": '<path d="M20 8.5 12 4 4 8.5 12 13l8-4.5z"/><path d="M4 8.5V16l8 4 8-4V8.5"/><path d="M12 13v7"/>',
         "bell": '<path d="M18 9a6 6 0 1 0-12 0c0 4.5-1.8 5.5-1.8 5.5h15.6S18 13.5 18 9z"/><path d="M10.5 19a1.8 1.8 0 0 0 3 0"/>',
-        "gear": '<circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2M12 18.5v2M4.9 7.9l1.7 1.1M17.4 15l1.7 1.1M4.9 16.1l1.7-1.1M17.4 9l1.7-1.1"/>',
-        "star": '<path d="m12 4 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8L12 4z"/>',
-        "plus": '<path d="M12 6v12M6 12h12"/>',
-        "check": '<path d="M20 6.5 9.5 17 4.5 12"/>',
-        "clock": '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
-        "right": '<path d="m9.5 6 6 6-6 6"/>',
         "search": '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/>',
         "headphone": '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="2"/><rect x="17" y="14" width="4" height="6" rx="2"/>',
         "phone": '<rect x="7" y="3" width="10" height="18" rx="2.6"/><path d="M10.8 18h2.4"/>',
