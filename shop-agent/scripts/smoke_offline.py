@@ -19,6 +19,7 @@ from app.cart import service as cart_service  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.db import database, seed  # noqa: E402
 from app.db.database import get_conn  # noqa: E402
+from app.llm import config_store  # noqa: E402
 from app.selection.parser import parse_intent  # noqa: E402
 
 CHECKS: list[tuple[bool, str]] = []
@@ -72,6 +73,15 @@ def main() -> int:
     check("超时订单自动失效", refresh["expired"] == 1)
     reminders = cart_service.list_reminders(1)
     check("生成失效提醒", any(r["type"] == "order_expired" for r in reminders))
+
+    # 6. 运行时模型配置（网页端填写后即时生效，不依赖 .env）
+    saved = config_store.save_model_config(
+        base_url="https://example.com/v1", api_key="sk-smoke-1234567890", model="smoke-model"
+    )
+    config = config_store.get_model_config()
+    check("保存运行时模型配置", config["base_url"] == "https://example.com/v1" and config["source"] == "runtime")
+    check("配置接口Key打码", saved["api_key_set"] and "sk-smoke-1234567890" not in str(saved))
+    check("运行时配置优先于环境变量", config["model"] == "smoke-model")
 
     failed = [name for ok, name in CHECKS if not ok]
     if failed:

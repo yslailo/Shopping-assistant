@@ -36,23 +36,37 @@ app/db/                    SQLite 建表与 48 款商品种子数据
 #    或 --proxy http://127.0.0.1:10808）
 pip install -r requirements.txt
 
-# 2. 配置模型 API Key
-copy .env.example .env   # 编辑 .env 填入 LLM_API_KEY
-
-# 3. 启动后端（终端 1，默认 8000 端口）
+# 2. 启动后端（终端 1，默认 8000 端口）
 python -m uvicorn app.main:app --port 8000
 
-# 4. 启动前端（终端 2）
+# 3. 启动前端（终端 2）
 python -m streamlit run ui/streamlit_app.py
 ```
 
 首次启动会自动建库并写入 48 款演示商品。
 
+## 模型设置（网页端配置，无需改代码）
+
+打开前端后，在左侧「模型设置」面板填写三项即可使用，保存后立即生效，不需要重启服务：
+
+| 字段 | 说明 | 示例 |
+|---|---|---|
+| Base URL | 任何 OpenAI 兼容接口地址 | `https://api.deepseek.com` |
+| 模型名 | 服务商提供的模型标识 | `deepseek-chat` |
+| API Key | 对应平台密钥 | `sk-...` |
+
+点「测试连接」会真实发一次最小请求验证可用性；若地址未带 `/v1` 而首次请求失败，
+系统会自动补 `/v1` 再试一次，并在提示中给出建议地址。
+
+可接入 DeepSeek、通义千问（兼容模式）、智谱、vLLM / Ollama 自建服务，
+以及各类 OpenAI 兼容中转站。配置保存在本地 SQLite 的 `app_settings` 表
+（`source=runtime`）；`source=env` 表示当前用的是 `.env` 兜底默认值。
+
 ## 降级运行
 
 系统对两个第三方依赖做了可选处理，缺失时核心功能不受影响：
 
-- 未装 openai / 未配 Key：对话不可用，但意图解析与打分自动回退
+- 未装 openai / 未配置接口：对话不可用，但意图解析与打分自动回退
   到规则与关键词匹配，购物车、订单、提醒全流程照常（见下节验证）。
 - 未装 APScheduler：后台定时提醒关闭，订单状态在每次对话前惰性刷新，
   超时失效与支付提醒逻辑依然成立。
@@ -78,11 +92,14 @@ python scripts/smoke_offline.py
 
 ## 配置说明
 
+模型接口（Base URL / 模型名 / API Key）优先使用网页端「模型设置」保存的值，
+下列环境变量只作为未在网页配置时的兜底默认值：
+
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| LLM_BASE_URL | https://api.deepseek.com | OpenAI 兼容接口地址 |
-| LLM_MODEL | deepseek-chat | 模型名 |
-| LLM_API_KEY | （空） | 必填，否则对话不可用 |
+| LLM_BASE_URL | https://api.deepseek.com | OpenAI 兼容接口地址（兜底） |
+| LLM_MODEL | deepseek-chat | 模型名（兜底） |
+| LLM_API_KEY | （空） | 可选的兜底 Key，推荐直接用网页端配置 |
 | SHOP_AGENT_DB | 项目根 shop_agent.db | SQLite 文件路径 |
 | PAYMENT_TIMEOUT_MINUTES | 30 | 订单支付超时时间 |
 | REMIND_BEFORE_MINUTES | 10 | 截止前多少分钟生成提醒 |

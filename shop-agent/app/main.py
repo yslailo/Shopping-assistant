@@ -10,6 +10,7 @@ from app.agent import loop
 from app.cart import service as cart_service
 from app.config import settings
 from app.db import database, seed
+from app.llm import config_store
 from app.llm.client import llm
 from app.reminder import scheduler
 
@@ -45,6 +46,14 @@ class PayRequest(BaseModel):
     user_id: int = DEFAULT_USER_ID
 
 
+class ModelConfigRequest(BaseModel):
+    """模型连接配置。字段留空表示保留已保存的值。"""
+
+    base_url: str = ""
+    model: str = ""
+    api_key: str = ""
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {
@@ -54,11 +63,43 @@ def health() -> dict:
     }
 
 
+@app.get("/api/model-config")
+def get_model_config() -> dict:
+    """返回当前模型配置（API Key 打码）。"""
+    return config_store.public_view()
+
+
+@app.post("/api/model-config")
+def save_model_config(request: ModelConfigRequest) -> dict:
+    """保存模型配置，立即生效，无需重启。"""
+    return config_store.save_model_config(
+        base_url=request.base_url,
+        api_key=request.api_key,
+        model=request.model,
+    )
+
+
+@app.delete("/api/model-config/api-key")
+def delete_model_api_key() -> dict:
+    """清除已保存的 API Key。"""
+    return config_store.clear_api_key()
+
+
+@app.post("/api/model-config/test")
+def test_model_config(request: ModelConfigRequest) -> dict:
+    """测试模型接口连通性。request 为空时使用已保存的配置。"""
+    return llm.test_connection(
+        base_url=request.base_url,
+        api_key=request.api_key,
+        model=request.model,
+    )
+
+
 @app.post("/api/chat")
 def chat(request: ChatRequest) -> dict:
     if not llm.available:
         return {
-            "reply": "系统尚未配置大模型 API Key，请复制 .env.example 为 .env 并填写 LLM_API_KEY 后重启服务。",
+            "reply": "系统尚未配置大模型接口，请在左侧「模型设置」中填写 Base URL、模型名和 API Key 后再试。",
         }
     return loop.run_turn(request.user_id, request.message)
 

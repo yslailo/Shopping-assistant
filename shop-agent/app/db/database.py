@@ -64,6 +64,12 @@ CREATE TABLE IF NOT EXISTS reminders (
     is_read    INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status, deadline);
 """
 

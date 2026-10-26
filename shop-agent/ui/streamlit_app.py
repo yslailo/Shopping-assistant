@@ -39,6 +39,64 @@ def refresh_state() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 侧栏：模型设置（OpenAI 兼容接口，保存即生效）
+# ---------------------------------------------------------------------------
+
+with st.sidebar:
+    try:
+        model_config = api_get("/api/model-config")
+    except requests.RequestException:
+        model_config = {"base_url": "", "model": "", "api_key_set": False, "api_key_masked": "", "source": "none"}
+
+    source_label = {"runtime": "网页配置", "env": ".env 默认值", "none": "未配置"}[model_config["source"]]
+    status_icon = "🟢" if model_config["api_key_set"] else "🔴"
+    with st.expander(f"{status_icon} 模型设置（{source_label}）", expanded=not model_config["api_key_set"]):
+        st.caption("支持任意 OpenAI 兼容接口，例如 DeepSeek、通义千问、智谱、vLLM、Ollama 或中转站。")
+        cfg_base_url = st.text_input(
+            "Base URL",
+            value=model_config["base_url"],
+            placeholder="https://api.deepseek.com 或 https://api.deepseek.com/v1",
+        )
+        cfg_model = st.text_input("模型名", value=model_config["model"], placeholder="deepseek-chat")
+        cfg_api_key = st.text_input(
+            "API Key",
+            type="password",
+            placeholder="已保存 " + model_config["api_key_masked"] if model_config["api_key_set"] else "sk-...",
+        )
+        st.caption("Key 会保存在本地数据库，仅本机可见；不填表示沿用已保存的 Key。")
+
+        col_save, col_test = st.columns(2)
+        if col_save.button("保存", use_container_width=True):
+            payload = {"base_url": cfg_base_url, "model": cfg_model, "api_key": cfg_api_key}
+            try:
+                saved = api_post("/api/model-config", payload)
+                st.success("已保存，立即生效")
+                st.session_state.model_config = saved
+            except requests.RequestException as exc:
+                st.error(f"保存失败：{exc}")
+            st.rerun()
+
+        if col_test.button("测试连接", use_container_width=True):
+            payload = {"base_url": cfg_base_url, "model": cfg_model, "api_key": cfg_api_key}
+            try:
+                result = api_post("/api/model-config/test", payload)
+            except requests.RequestException as exc:
+                result = {"ok": False, "message": f"请求失败：{exc}"}
+            if result.get("ok"):
+                st.success(f"{result['message']}（{result.get('latency_ms', 0)} ms）")
+                if result.get("base_url") != cfg_base_url:
+                    st.info(f"实际使用 Base URL：{result['base_url']}，建议保存时填写该地址")
+            else:
+                st.error(result.get("message", "测试失败"))
+
+        if model_config["api_key_set"] and st.button("清除已保存的 Key", use_container_width=True):
+            try:
+                requests.delete(f"{API_BASE}/api/model-config/api-key", timeout=30).raise_for_status()
+            except requests.RequestException as exc:
+                st.error(f"清除失败：{exc}")
+            st.rerun()
+
+# ---------------------------------------------------------------------------
 # 侧栏：购物车 / 订单 / 提醒
 # ---------------------------------------------------------------------------
 
@@ -96,6 +154,9 @@ with st.sidebar:
 
 st.title("🛒 小购 · 购物助手")
 st.caption("告诉我你的需求，我来帮你挑商品、管购物车、盯着支付时间。试试：\"预算 500 以内，想买个降噪耳机\"")
+
+if not model_config["api_key_set"]:
+    st.warning("尚未配置模型接口：请展开左侧「模型设置」填写 Base URL、模型名和 API Key，保存后即可开始对话。")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
