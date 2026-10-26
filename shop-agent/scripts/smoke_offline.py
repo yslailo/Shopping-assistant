@@ -8,6 +8,7 @@
 
 import os
 import sys
+from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # Windows GBK 控制台兼容
@@ -37,6 +38,10 @@ def main() -> int:
     if os.path.exists(db_path):
         os.remove(db_path)
     settings.db_path = db_path
+    # 模型配置也必须重定向到临时文件，防止冒烟测试覆盖真实配置
+    config_store.CONFIG_PATH = Path(data_dir) / "smoke_model_config.json"
+    if config_store.CONFIG_PATH.exists():
+        config_store.CONFIG_PATH.unlink()
 
     # 1. 建库与种子数据
     database.init_db(db_path)

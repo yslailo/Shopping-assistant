@@ -35,6 +35,13 @@ html, body, [class*="st-"] {
   font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--ink);
 }
+/* Streamlit 的 Material Symbols 图标字体在本机不可用，密码框的眼睛按钮会露出
+   原始图标名 "visibility"。隐藏图标文本，按输入框类型注入中文状态标签。 */
+[data-testid="stIconMaterial"] { font-size: 0 !important; }
+[data-testid="stTextInputRootElement"]:has(input[type="password"]) [data-testid="stIconMaterial"]::before {
+  content: "显示"; font-size: 11px; color: var(--muted); letter-spacing: 0.05em; }
+[data-testid="stTextInputRootElement"]:has(input[type="text"]) [data-testid="stIconMaterial"]::before {
+  content: "隐藏"; font-size: 11px; color: var(--accent); letter-spacing: 0.05em; }
 .stApp { background: var(--bg); }
 .block-container { padding-top: 4.2rem; padding-bottom: 5rem; max-width: 1240px; }
 #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"],

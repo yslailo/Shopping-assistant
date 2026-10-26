@@ -26,6 +26,8 @@ _shot_probe.py
 _diag*.py
 _width_probe.py
 _top_probe.py
+_eye_probe.py
+eye.log
 top*.log
 top_check*.png
 probe.log
