@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS products (
     description TEXT    NOT NULL DEFAULT ''
 );
 
+-- 选品召回的硬约束过滤（品类+价格区间）与品牌查询走复合索引；
+-- 排序列单独建索引，供无品类条件时 ORDER BY rating 使用。
+-- CREATE INDEX IF NOT EXISTS 幂等，老库启动时自动补建。
+CREATE INDEX IF NOT EXISTS idx_products_category_price ON products (category, price);
+CREATE INDEX IF NOT EXISTS idx_products_brand ON products (brand);
+CREATE INDEX IF NOT EXISTS idx_products_rating ON products (rating);
+
 CREATE TABLE IF NOT EXISTS cart_items (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL,
