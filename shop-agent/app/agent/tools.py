@@ -86,15 +86,16 @@ TOOL_SCHEMAS = [
     },
 ]
 
-# 每个用户最近一次推荐列表，用于把"第N款"解析成具体商品（确定性解析）
-_last_recommendations: dict[int, list[dict]] = {}
+# 每个会话最近一次推荐列表，用于把"第N款"解析成具体商品（确定性解析）。
+# 与会话历史一样按 session_key 隔离，避免多窗口共用推荐列表导致指代错乱。
+_last_recommendations: dict[str, list[dict]] = {}
 
 
-def get_last_recommendations(user_id: int) -> list[dict]:
-    return _last_recommendations.get(user_id, [])
+def get_last_recommendations(session_key: str) -> list[dict]:
+    return _last_recommendations.get(session_key, [])
 
 
-def _format_recommendation(result: pipeline.RecommendResult, user_id: int) -> str:
+def _format_recommendation(result: pipeline.RecommendResult, session_key: str) -> str:
     if result.mode == "clarification":
         return f"NEED_CLARIFICATION: {result.question}"
     if result.mode == "no_result":
@@ -114,7 +115,7 @@ def _format_recommendation(result: pipeline.RecommendResult, user_id: int) -> st
     lines.append("注意：推荐结果已由界面渲染成商品卡片展示给用户，回复中不要重复罗列商品清单。")
 
     # 前端会把推荐结果渲染成可点击的商品卡片，这里同步保存结构化数据
-    _last_recommendations[user_id] = [
+    _last_recommendations[session_key] = [
         {
             "product_id": item.product["id"],
             "name": item.product["name"],
@@ -133,7 +134,7 @@ def _format_recommendation(result: pipeline.RecommendResult, user_id: int) -> st
     return "\n".join(lines)
 
 
-def _tool_search_products(user_id: int, arguments: dict) -> str:
+def _tool_search_products(user_id: int, arguments: dict, session_key: str) -> str:
     filters = HardConstraints(
         category=arguments.get("category"),
         brand_in=[arguments["brand"]] if arguments.get("brand") else [],
@@ -141,15 +142,15 @@ def _tool_search_products(user_id: int, arguments: dict) -> str:
         price_max=arguments.get("price_max"),
     )
     result = pipeline.recommend(arguments["query"], filters=filters)
-    return _format_recommendation(result, user_id)
+    return _format_recommendation(result, session_key)
 
 
-def _tool_add_to_cart(user_id: int, arguments: dict) -> str:
+def _tool_add_to_cart(user_id: int, arguments: dict, session_key: str) -> str:
     product_id = arguments.get("product_id")
     selection_index = arguments.get("selection_index")
 
     if product_id is None and selection_index is not None:
-        recommendations = _last_recommendations.get(user_id, [])
+        recommendations = _last_recommendations.get(session_key, [])
         if not 1 <= int(selection_index) <= len(recommendations):
             return f"加购失败：推荐列表中没有第 {selection_index} 款，请先让用户确认商品"
         product_id = recommendations[int(selection_index) - 1]["product_id"]
@@ -170,18 +171,25 @@ def _tool_view_cart(user_id: int) -> str:
     return "当前购物车：\n" + "\n".join(lines) + f"\n合计：¥{cart['total']:.2f}"
 
 
-def execute_tool(user_id: int, name: str, arguments_json: str) -> str:
-    """执行一次工具调用，永远返回字符串结果供模型阅读。"""
+def execute_tool(user_id: int, name: str, arguments_json: str, session_key: str = "") -> str:
+    """执行一次工具调用，永远返回字符串结果供模型阅读。
+
+    session_key 决定"最近推荐列表"的归属会话；不传时回退到用户级键，
+    供脚本与测试直接调用。购物车、订单等仍始终归属 user_id。
+    """
     try:
         arguments = json.loads(arguments_json) if arguments_json.strip() else {}
     except json.JSONDecodeError:
         return f"工具调用失败：{name} 的参数不是合法 JSON"
 
+    if not session_key:
+        session_key = f"user:{user_id}"
+
     try:
         if name == "search_products":
-            return _tool_search_products(user_id, arguments)
+            return _tool_search_products(user_id, arguments, session_key)
         if name == "add_to_cart":
-            return _tool_add_to_cart(user_id, arguments)
+            return _tool_add_to_cart(user_id, arguments, session_key)
         if name == "remove_from_cart":
             return cart_service.remove_from_cart(user_id, int(arguments["product_id"]))
         if name == "view_cart":

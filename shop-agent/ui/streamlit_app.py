@@ -8,6 +8,7 @@
 
 import html
 import os
+import uuid
 
 import requests
 import streamlit as st
@@ -16,6 +17,11 @@ API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000")
 USER_ID = 1
 
 st.set_page_config(page_title="小购 · 购物助手", layout="wide")
+
+# 每个浏览器窗口/每次刷新都是一条独立会话，对话上下文在服务端按此隔离；
+# 刷新页面后页面与上下文同时清空，两者保持一致。
+if "session_id" not in st.session_state:
+    st.session_state.session_id = uuid.uuid4().hex
 
 # ---------------------------------------------------------------------------
 # 样式
@@ -351,7 +357,10 @@ def send_message(text: str) -> None:
     st.session_state.messages.append({"role": "user", "content": text})
     try:
         with st.spinner("正在挑选…"):
-            data = api_post("/api/chat", {"user_id": USER_ID, "message": text})
+            data = api_post(
+                "/api/chat",
+                {"user_id": USER_ID, "message": text, "session_id": st.session_state.session_id},
+            )
         reply = data.get("reply", "")
         recommendations = data.get("recommendations") or []
     except requests.RequestException as exc:
@@ -432,7 +441,14 @@ with panel_column:
                 unsafe_allow_html=True,
             )
             if st.button("结算", use_container_width=True):
-                reply = api_post("/api/chat", {"user_id": USER_ID, "message": "帮我结算购物车"}).get("reply", "")
+                reply = api_post(
+                    "/api/chat",
+                    {
+                        "user_id": USER_ID,
+                        "message": "帮我结算购物车",
+                        "session_id": st.session_state.session_id,
+                    },
+                ).get("reply", "")
                 st.session_state.messages.append({"role": "user", "content": "帮我结算购物车"})
                 st.session_state.messages.append({"role": "assistant", "content": reply})
                 st.rerun()

@@ -41,6 +41,7 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     user_id: int = DEFAULT_USER_ID
+    session_id: str = ""  # 前端浏览器会话号，用于隔离对话上下文；留空回退到用户级
 
 
 class PayRequest(BaseModel):
@@ -109,7 +110,7 @@ def chat(request: ChatRequest) -> dict:
         return {
             "reply": "系统尚未配置大模型接口，请在左侧「模型设置」中填写 Base URL、模型名和 API Key 后再试。",
         }
-    return loop.run_turn(request.user_id, request.message)
+    return loop.run_turn(request.user_id, request.message, request.session_id)
 
 
 @app.get("/api/cart")
