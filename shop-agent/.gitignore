@@ -17,3 +17,15 @@ pip-install-*/
 pip-unpack-*/
 testdata/
 *.log
+model_config.json
+model_config.json.tmp
+shot*.png
+width*.png
+_chat_probe.py
+_shot_probe.py
+_diag*.py
+_width_probe.py
+probe.log
+diag*.log
+chat_test.log
+shot_run*.log

@@ -158,20 +158,38 @@ def _weighted_total(
     return weighted_sum / total_weight if total_weight else 0.0
 
 
+def _normalize_id(value) -> int | None:
+    """把模型返回的商品标识统一成整数 ID，兼容 "P15" / "15" / 15 等写法。"""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value).strip().upper().lstrip("P")
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
 def _build_items(
     constraints: list[tuple[str, str, str]],
     candidates: list[dict],
     score_result: list[dict],
 ) -> list[RecommendItem]:
-    score_map = {entry["id"]: entry for entry in score_result if "id" in entry}
+    score_map: dict[int, dict] = {}
+    for entry in score_result:
+        if isinstance(entry, dict) and "id" in entry:
+            product_id = _normalize_id(entry["id"])
+            if product_id is not None:
+                score_map[product_id] = entry
     text_of = {label: text for label, _g, text in constraints}
 
     items: list[RecommendItem] = []
     for product in candidates:
         entry = score_map.get(product["id"], {})
-        scores = entry.get("scores", {})
-        matched = [text_of[l] for l, s in scores.items() if s >= 0.5 and l in text_of]
-        missed = [text_of[l] for l, s in scores.items() if s < 0.5 and l in text_of]
+        scores = entry.get("scores", {}) or {}
+        matched = [text_of[l] for l, s in scores.items() if float(s) >= 0.5 and l in text_of]
+        missed = [text_of[l] for l, s in scores.items() if float(s) < 0.5 and l in text_of]
         reason = entry.get("reason") or (
             f"命中 {len(matched)} 项偏好" if matched else "综合口碑排序"
         )

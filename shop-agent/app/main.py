@@ -1,8 +1,9 @@
 """FastAPI 后端入口：对话、购物车、订单与提醒接口。"""
 
+import json
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -10,6 +11,7 @@ from app.agent import loop
 from app.cart import service as cart_service
 from app.config import settings
 from app.db import database, seed
+from app.db.database import get_conn
 from app.llm import config_store
 from app.llm.client import llm
 from app.reminder import scheduler
@@ -52,6 +54,12 @@ class ModelConfigRequest(BaseModel):
     base_url: str = ""
     model: str = ""
     api_key: str = ""
+
+
+class CartChangeRequest(BaseModel):
+    product_id: int
+    quantity: int = 1
+    user_id: int = DEFAULT_USER_ID
 
 
 @app.get("/api/health")
@@ -107,6 +115,40 @@ def chat(request: ChatRequest) -> dict:
 @app.get("/api/cart")
 def get_cart(user_id: int = DEFAULT_USER_ID) -> dict:
     return cart_service.get_cart(user_id)
+
+
+@app.get("/api/products/{product_id}")
+def get_product(product_id: int) -> dict:
+    """商品详情：供前端卡片弹窗展示完整信息。"""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, name, category, brand, price, specs, features, rating, stock, description "
+            "FROM products WHERE id = ?",
+            (product_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="商品不存在")
+    product = dict(row)
+    product["features"] = [f.strip() for f in product["features"].split(",") if f.strip()]
+    try:
+        product["specs"] = json.loads(product["specs"] or "{}")
+    except json.JSONDecodeError:
+        product["specs"] = {}
+    return product
+
+
+@app.post("/api/cart/add")
+def add_cart(request: CartChangeRequest) -> dict:
+    """直接加购（前端按钮使用，不经过大模型）。"""
+    message = cart_service.add_to_cart(request.user_id, request.product_id, request.quantity)
+    return {"message": message, "cart": cart_service.get_cart(request.user_id)}
+
+
+@app.post("/api/cart/remove")
+def remove_cart(request: CartChangeRequest) -> dict:
+    """直接从购物车移除。"""
+    message = cart_service.remove_from_cart(request.user_id, request.product_id)
+    return {"message": message, "cart": cart_service.get_cart(request.user_id)}
 
 
 @app.get("/api/orders")

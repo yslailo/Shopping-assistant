@@ -59,8 +59,8 @@ python -m streamlit run ui/streamlit_app.py
 系统会自动补 `/v1` 再试一次，并在提示中给出建议地址。
 
 可接入 DeepSeek、通义千问（兼容模式）、智谱、vLLM / Ollama 自建服务，
-以及各类 OpenAI 兼容中转站。配置保存在本地 SQLite 的 `app_settings` 表
-（`source=runtime`）；`source=env` 表示当前用的是 `.env` 兜底默认值。
+以及各类 OpenAI 兼容中转站。配置保存在项目根目录的 `model_config.json`
+（`source=runtime`），与业务数据库分离；`source=env` 表示当前用的是 `.env` 兜底默认值。
 
 ## 降级运行
 

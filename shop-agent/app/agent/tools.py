@@ -111,9 +111,23 @@ def _format_recommendation(result: pipeline.RecommendResult, user_id: int) -> st
             f"   推荐理由: {item.reason}（综合得分 {item.score:.2f}）"
         )
     lines.append('用户说"第N款/那个"时，请用 add_to_cart 的 selection_index 参数加购。')
+    lines.append("注意：推荐结果已由界面渲染成商品卡片展示给用户，回复中不要重复罗列商品清单。")
 
+    # 前端会把推荐结果渲染成可点击的商品卡片，这里同步保存结构化数据
     _last_recommendations[user_id] = [
-        {"product_id": item.product["id"], "name": item.product["name"], "price": item.product["price"]}
+        {
+            "product_id": item.product["id"],
+            "name": item.product["name"],
+            "brand": item.product["brand"],
+            "category": item.product["category"],
+            "price": item.product["price"],
+            "rating": item.product["rating"],
+            "features": [f.strip() for f in item.product["features"].split(",") if f.strip()],
+            "score": item.score,
+            "matched": item.matched,
+            "missed": item.missed,
+            "reason": item.reason,
+        }
         for item in result.items
     ]
     return "\n".join(lines)

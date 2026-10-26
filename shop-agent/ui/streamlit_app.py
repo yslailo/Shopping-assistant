@@ -1,8 +1,12 @@
-"""Streamlit 演示前端：聊天区 + 购物车/订单/提醒侧栏。
+"""Streamlit 前端：聊天 + 商品卡片 + 右侧信息面板。
+
+布局说明：不使用 Streamlit 原生侧栏（窄窗口会被自动折叠导致内容不可见），
+购物车 / 订单 / 提醒 / 模型设置全部放在主区右列，任何窗口宽度下都可见。
 
 运行：python -m streamlit run ui/streamlit_app.py
 """
 
+import html
 import os
 
 import requests
@@ -11,8 +15,150 @@ import streamlit as st
 API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000")
 USER_ID = 1
 
-st.set_page_config(page_title="小购 · 购物助手", page_icon="🛒", layout="wide")
+st.set_page_config(page_title="小购 · 购物助手", layout="wide")
 
+# ---------------------------------------------------------------------------
+# 样式
+# ---------------------------------------------------------------------------
+
+CSS = """
+<style>
+:root {
+  --ink: #18181b;
+  --muted: #71717a;
+  --line: #e8e8ea;
+  --bg: #fbfbfa;
+  --accent: #0f766e;
+  --accent-soft: #ecfdf5;
+}
+html, body, [class*="st-"] {
+  font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--ink);
+}
+.stApp { background: var(--bg); }
+.block-container { padding-top: 2rem; padding-bottom: 5rem; max-width: 1240px; }
+#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"],
+[data-testid="stStatusWidget"] { visibility: hidden; }
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand svg { color: var(--ink); }
+.brand-name { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; }
+.brand-sub { color: var(--muted); font-size: 13px; margin: 2px 0 20px 34px; }
+
+.section { display: flex; align-items: center; gap: 8px; font-size: 13px;
+  font-weight: 600; margin: 16px 0 8px; letter-spacing: 0.01em; }
+.section:first-child { margin-top: 2px; }
+.section svg { color: var(--muted); }
+.rule { height: 1px; background: var(--line); margin: 14px 0; border: 0; }
+
+.msg-user { background: #fff; border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px 16px; margin: 8px 0 8px auto; max-width: 82%;
+  font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+.msg-bot { font-size: 14.5px; line-height: 1.75; color: #27272a; margin: 10px 0 14px;
+  max-width: 92%; white-space: pre-wrap; }
+
+.grid { display: grid; gap: 12px; margin: 6px 0 18px; }
+.card { background: #fff; border: 1px solid var(--line); border-radius: 16px;
+  padding: 14px; display: flex; flex-direction: column;
+  transition: box-shadow .18s ease, border-color .18s ease; }
+.card:hover { box-shadow: 0 8px 24px rgba(24,24,27,.07); border-color: #d4d4d8; }
+.card-media { height: 84px; border-radius: 12px; background: #f6f6f5;
+  display: flex; align-items: center; justify-content: center; margin-bottom: 12px; color: #52525b; }
+.card-title { font-size: 13.5px; font-weight: 550; line-height: 1.45; height: 39px;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.card-brand { color: var(--muted); font-size: 12px; margin-top: 4px; display: flex;
+  align-items: center; justify-content: space-between; gap: 6px; }
+.card-price { font-size: 15.5px; font-weight: 600; margin-top: 8px; letter-spacing: -0.01em; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; min-height: 20px; }
+.card-reason { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 8px;
+  min-height: 34px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.rating { color: #a1a1aa; font-size: 11.5px; }
+.rank { font-size: 11px; color: var(--muted); letter-spacing: .06em; }
+
+.tag { font-size: 11px; color: #52525b; background: #f4f4f5;
+  border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
+.tag.accent { color: var(--accent); background: var(--accent-soft); }
+
+.row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px;
+  padding: 5px 0; color: #3f3f46; }
+.row .k { color: var(--muted); }
+.total { display: flex; justify-content: space-between; font-size: 14px;
+  font-weight: 600; padding-top: 10px; margin-top: 6px; border-top: 1px solid var(--line); }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: #3f3f46; }
+.dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.dot.warn { background: #d97706; } .dot.ok { background: #059669; } .dot.bad { background: #dc2626; }
+.hint { color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+.note { background: #fff; border: 1px solid var(--line); border-left: 2px solid var(--accent);
+  border-radius: 10px; padding: 10px 14px; font-size: 13px; color: #3f3f46; margin: 6px 0; }
+
+.panel { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 4px 16px 14px; }
+div[data-testid="stVerticalBlockBorderWrapper"] > div {
+  border: 1px solid var(--line) !important; border-radius: 18px !important; background: #fff; }
+
+div.stButton > button { border-radius: 10px; border: 1px solid var(--line);
+  background: #fff; color: #3f3f46; font-size: 12.5px; padding: 5px 10px; width: 100%;
+  box-shadow: none; transition: all .16s ease; }
+div.stButton > button:hover { border-color: var(--ink); color: var(--ink); background: #fff; }
+
+.chip-wrap { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 18px; }
+.chip { border: 1px solid var(--line); background: #fff; border-radius: 999px;
+  padding: 7px 14px; font-size: 12.5px; color: #3f3f46; }
+
+div[data-testid="stChatInput"] textarea { font-size: 14px; }
+div[data-testid="stChatInput"] { border-radius: 14px; }
+</style>
+"""
+
+st.markdown(CSS, unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# SVG 图标（线性风格，统一 24 视窗）
+# ---------------------------------------------------------------------------
+
+def icon(name: str, size: int = 18, width: float = 1.6) -> str:
+    paths = {
+        "bag": '<path d="M6 8h12l-1 12H7L6 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
+        "cart": '<path d="M3 4h2l2.3 11h10.2l2-8H6"/><circle cx="9.5" cy="18.5" r="1.3"/><circle cx="17" cy="18.5" r="1.3"/>',
+        "box": '<path d="M20 8.5 12 4 4 8.5 12 13l8-4.5z"/><path d="M4 8.5V16l8 4 8-4V8.5"/><path d="M12 13v7"/>',
+        "bell": '<path d="M18 9a6 6 0 1 0-12 0c0 4.5-1.8 5.5-1.8 5.5h15.6S18 13.5 18 9z"/><path d="M10.5 19a1.8 1.8 0 0 0 3 0"/>',
+        "gear": '<circle cx="12" cy="12" r="3.2"/><path d="M12 3.5v2M12 18.5v2M4.9 7.9l1.7 1.1M17.4 15l1.7 1.1M4.9 16.1l1.7-1.1M17.4 9l1.7-1.1"/>',
+        "star": '<path d="m12 4 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8L12 4z"/>',
+        "plus": '<path d="M12 6v12M6 12h12"/>',
+        "check": '<path d="M20 6.5 9.5 17 4.5 12"/>',
+        "clock": '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+        "right": '<path d="m9.5 6 6 6-6 6"/>',
+        "search": '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/>',
+        "headphone": '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="2"/><rect x="17" y="14" width="4" height="6" rx="2"/>',
+        "phone": '<rect x="7" y="3" width="10" height="18" rx="2.6"/><path d="M10.8 18h2.4"/>',
+        "laptop": '<rect x="4.5" y="5" width="15" height="10.5" rx="2"/><path d="M2.5 19h19"/>',
+        "bottle": '<path d="M9.5 7V4.5h5V7"/><rect x="7" y="7" width="10" height="13" rx="2.6"/><path d="M10 11h4"/>',
+        "cooker": '<rect x="4" y="9.5" width="16" height="10.5" rx="3"/><path d="M8.5 9.5V8a3.5 3.5 0 0 1 7 0v1.5"/>',
+        "dryer": '<circle cx="10" cy="9.5" r="4"/><path d="m13 10.5 6-3v6l-6-1"/><path d="M9 13.5v6"/>',
+    }
+    body = paths.get(name, paths["box"])
+    return (
+        f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        f'stroke-width="{width}" stroke-linecap="round" stroke-linejoin="round">{body}</svg>'
+    )
+
+
+CATEGORY_ICONS = {
+    "蓝牙耳机": "headphone",
+    "智能手机": "phone",
+    "笔记本电脑": "laptop",
+    "洗发水": "bottle",
+    "电饭煲": "cooker",
+    "吹风机": "dryer",
+}
+
+
+def category_icon(category: str, size: int = 34) -> str:
+    return icon(CATEGORY_ICONS.get(category, "box"), size=size, width=1.3)
+
+
+# ---------------------------------------------------------------------------
+# 后端接口
+# ---------------------------------------------------------------------------
 
 def api_get(path: str) -> dict:
     response = requests.get(f"{API_BASE}{path}", timeout=60)
@@ -20,164 +166,323 @@ def api_get(path: str) -> dict:
     return response.json()
 
 
-def api_post(path: str, payload: dict) -> dict:
-    response = requests.post(f"{API_BASE}{path}", json=payload, timeout=120)
+def api_post(path: str, payload: dict | None = None) -> dict:
+    response = requests.post(f"{API_BASE}{path}", json=payload or {}, timeout=120)
     response.raise_for_status()
     return response.json()
 
 
+def api_delete(path: str) -> None:
+    requests.delete(f"{API_BASE}{path}", timeout=30).raise_for_status()
+
+
 def refresh_state() -> None:
-    """从后端拉取购物车、订单与提醒，写入会话状态。"""
+    """拉取购物车、订单与提醒。"""
     try:
         st.session_state.cart = api_get(f"/api/cart?user_id={USER_ID}")
         st.session_state.orders = api_get(f"/api/orders?user_id={USER_ID}")["orders"]
         st.session_state.reminders = api_get(f"/api/reminders?user_id={USER_ID}")["reminders"]
     except requests.RequestException:
-        st.session_state.cart = st.session_state.get("cart", {"items": [], "total": 0})
-        st.session_state.orders = st.session_state.get("orders", [])
-        st.session_state.reminders = st.session_state.get("reminders", [])
+        st.session_state.setdefault("cart", {"items": [], "total": 0})
+        st.session_state.setdefault("orders", [])
+        st.session_state.setdefault("reminders", [])
+
+
+def money(value: float) -> str:
+    return f"¥{value:,.2f}"
 
 
 # ---------------------------------------------------------------------------
-# 侧栏：模型设置（OpenAI 兼容接口，保存即生效）
+# 商品卡片
 # ---------------------------------------------------------------------------
 
-with st.sidebar:
+def render_cards(recommendations: list[dict]) -> None:
+    """把推荐结果渲染成卡片网格，每张卡可点开详情。"""
+    if not recommendations:
+        return
+    for start in range(0, len(recommendations), 3):
+        chunk = recommendations[start:start + 3]
+        columns = st.columns(min(3, len(chunk)), gap="small")
+        for offset, item in enumerate(chunk):
+            rank = start + offset + 1
+            with columns[offset]:
+                matched = item.get("matched") or []
+                tags = "".join(
+                    f'<span class="tag accent">{html.escape(t)}</span>' for t in matched[:2]
+                ) or f'<span class="tag">{html.escape(item["category"])}</span>'
+                st.markdown(
+                    f"""
+                    <div class="card">
+                      <div class="card-media">{category_icon(item["category"])}</div>
+                      <div class="rank">NO.{rank}</div>
+                      <div class="card-title">{html.escape(item["name"])}</div>
+                      <div class="card-brand">
+                        <span>{html.escape(item["brand"])}</span>
+                        <span class="rating">{item["rating"]:.1f} 分</span>
+                      </div>
+                      <div class="card-price">{money(item["price"])}</div>
+                      <div class="card-tags">{tags}</div>
+                      <div class="card-reason">{html.escape(item.get("reason") or "")}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button("查看详情", key=f"detail-{rank}-{item['product_id']}"):
+                    st.session_state.detail_id = item["product_id"]
+                    st.rerun()
+
+
+@st.dialog("商品详情", width="large")
+def show_product_dialog(product_id: int) -> None:
     try:
-        model_config = api_get("/api/model-config")
-    except requests.RequestException:
-        model_config = {"base_url": "", "model": "", "api_key_set": False, "api_key_masked": "", "source": "none"}
+        product = api_get(f"/api/products/{product_id}")
+    except requests.RequestException as exc:
+        st.error(f"加载商品失败：{exc}")
+        return
 
-    source_label = {"runtime": "网页配置", "env": ".env 默认值", "none": "未配置"}[model_config["source"]]
-    status_icon = "🟢" if model_config["api_key_set"] else "🔴"
-    with st.expander(f"{status_icon} 模型设置（{source_label}）", expanded=not model_config["api_key_set"]):
-        st.caption("支持任意 OpenAI 兼容接口，例如 DeepSeek、通义千问、智谱、vLLM、Ollama 或中转站。")
-        cfg_base_url = st.text_input(
-            "Base URL",
-            value=model_config["base_url"],
-            placeholder="https://api.deepseek.com 或 https://api.deepseek.com/v1",
-        )
-        cfg_model = st.text_input("模型名", value=model_config["model"], placeholder="deepseek-chat")
-        cfg_api_key = st.text_input(
-            "API Key",
-            type="password",
-            placeholder="已保存 " + model_config["api_key_masked"] if model_config["api_key_set"] else "sk-...",
-        )
-        st.caption("Key 会保存在本地数据库，仅本机可见；不填表示沿用已保存的 Key。")
-
-        col_save, col_test = st.columns(2)
-        if col_save.button("保存", use_container_width=True):
-            payload = {"base_url": cfg_base_url, "model": cfg_model, "api_key": cfg_api_key}
-            try:
-                saved = api_post("/api/model-config", payload)
-                st.success("已保存，立即生效")
-                st.session_state.model_config = saved
-            except requests.RequestException as exc:
-                st.error(f"保存失败：{exc}")
-            st.rerun()
-
-        if col_test.button("测试连接", use_container_width=True):
-            payload = {"base_url": cfg_base_url, "model": cfg_model, "api_key": cfg_api_key}
-            try:
-                result = api_post("/api/model-config/test", payload)
-            except requests.RequestException as exc:
-                result = {"ok": False, "message": f"请求失败：{exc}"}
-            if result.get("ok"):
-                st.success(f"{result['message']}（{result.get('latency_ms', 0)} ms）")
-                if result.get("base_url") != cfg_base_url:
-                    st.info(f"实际使用 Base URL：{result['base_url']}，建议保存时填写该地址")
-            else:
-                st.error(result.get("message", "测试失败"))
-
-        if model_config["api_key_set"] and st.button("清除已保存的 Key", use_container_width=True):
-            try:
-                requests.delete(f"{API_BASE}/api/model-config/api-key", timeout=30).raise_for_status()
-            except requests.RequestException as exc:
-                st.error(f"清除失败：{exc}")
-            st.rerun()
-
-# ---------------------------------------------------------------------------
-# 侧栏：购物车 / 订单 / 提醒
-# ---------------------------------------------------------------------------
-
-with st.sidebar:
-    st.header("🛒 我的购物车")
-    refresh_state()
-
-    cart = st.session_state.get("cart", {"items": [], "total": 0})
-    if cart["items"]:
-        for item in cart["items"]:
-            st.markdown(
-                f"{item['name']} × {item['quantity']}　¥{item['subtotal']:.2f}"
-            )
-        st.markdown(f"**合计：¥{cart['total']:.2f}**")
-        if st.button("结算，生成待支付订单", use_container_width=True):
-            st.toast(api_post("/api/chat", {"user_id": USER_ID, "message": "帮我结算购物车"}).get("reply", ""))
-            st.rerun()
-    else:
-        st.caption("购物车是空的，和助手聊聊想买什么吧～")
-
-    st.divider()
-    st.subheader("📦 我的订单")
-    orders = st.session_state.get("orders", [])
-    if not orders:
-        st.caption("暂无订单")
-    for order in orders:
-        status_label = {
-            "pending_payment": "⏳ 待支付",
-            "paid": "✅ 已支付",
-            "expired": "❌ 已超时",
-        }[order["status"]]
+    left, right = st.columns([1, 1.6], gap="large")
+    with left:
         st.markdown(
-            f"订单 #{order['id']}　¥{order['total_price']:.2f}　{status_label}"
+            f'<div class="card-media" style="height:200px;border-radius:14px;">'
+            f"{category_icon(product['category'], size=72)}</div>",
+            unsafe_allow_html=True,
         )
-        if order["status"] == "pending_payment":
-            if st.button(f"支付订单 #{order['id']}", key=f"pay-{order['id']}"):
-                api_post("/api/orders/pay", {"user_id": USER_ID, "order_id": order["id"]})
-                st.rerun()
+        st.markdown(
+            f'<div class="hint" style="margin-top:10px;">{html.escape(product["description"])}</div>',
+            unsafe_allow_html=True,
+        )
+    with right:
+        st.markdown(
+            f'<div style="font-size:19px;font-weight:600;line-height:1.4;">'
+            f'{html.escape(product["name"])}</div>'
+            f'<div class="hint" style="margin-top:6px;">'
+            f'{html.escape(product["brand"])} · {html.escape(product["category"])}'
+            f' &nbsp;|&nbsp; 评分 {product["rating"]:.1f} &nbsp;|&nbsp; 库存 {product["stock"]}</div>'
+            f'<div style="font-size:24px;font-weight:650;margin:14px 0 6px;letter-spacing:-0.02em;">'
+            f'{money(product["price"])}</div>',
+            unsafe_allow_html=True,
+        )
+        features = "".join(
+            f'<span class="tag accent">{html.escape(f)}</span>' for f in product["features"]
+        )
+        st.markdown(f'<div class="card-tags">{features}</div>', unsafe_allow_html=True)
 
-    st.divider()
-    st.subheader("🔔 提醒")
-    reminders = st.session_state.get("reminders", [])
-    if reminders:
-        for reminder in reminders:
-            st.info(reminder["message"])
-        if st.button("全部标为已读"):
-            api_post("/api/reminders/read", {"user_id": USER_ID})
+        if product["specs"]:
+            st.markdown('<hr class="rule">', unsafe_allow_html=True)
+            rows = "".join(
+                f'<div class="row"><span class="k">{html.escape(str(k))}</span>'
+                f"<span>{html.escape(str(v))}</span></div>"
+                for k, v in product["specs"].items()
+            )
+            st.markdown(rows, unsafe_allow_html=True)
+
+        st.markdown('<hr class="rule">', unsafe_allow_html=True)
+        if st.button("加入购物车", key=f"add-{product_id}", use_container_width=True):
+            result = api_post("/api/cart/add", {"product_id": product_id, "user_id": USER_ID})
+            st.session_state.detail_id = None
+            st.session_state.flash = result["message"]
             st.rerun()
-    else:
-        st.caption("暂无新提醒")
+
 
 # ---------------------------------------------------------------------------
-# 主区：对话
+# 模型设置（低调入口：面板底部小齿轮）
 # ---------------------------------------------------------------------------
 
-st.title("🛒 小购 · 购物助手")
-st.caption("告诉我你的需求，我来帮你挑商品、管购物车、盯着支付时间。试试：\"预算 500 以内，想买个降噪耳机\"")
+@st.dialog("模型接口设置")
+def show_settings_dialog() -> None:
+    try:
+        config = api_get("/api/model-config")
+    except requests.RequestException as exc:
+        st.error(f"读取配置失败：{exc}")
+        return
 
-if not model_config["api_key_set"]:
-    st.warning("尚未配置模型接口：请展开左侧「模型设置」填写 Base URL、模型名和 API Key，保存后即可开始对话。")
+    st.markdown(
+        '<div class="hint">填写任意 OpenAI 兼容接口的地址、模型名与密钥，保存后立即生效。'
+        "密钥仅保存在本机文件。</div>",
+        unsafe_allow_html=True,
+    )
+    base_url = st.text_input("Base URL", value=config["base_url"], placeholder="https://api.deepseek.com/v1")
+    model = st.text_input("模型名", value=config["model"], placeholder="deepseek-chat")
+    api_key = st.text_input(
+        "API Key",
+        type="password",
+        placeholder=f"已保存 {config['api_key_masked']}" if config["api_key_set"] else "sk-...",
+    )
+    source_label = {"runtime": "页面设置", "env": "环境变量", "none": "无"}[config["source"]]
+    st.markdown(
+        f'<div class="hint">当前状态：{"已配置" if config["api_key_set"] else "未配置"}'
+        f"（来源：{source_label}）</div>",
+        unsafe_allow_html=True,
+    )
+
+    col_save, col_test = st.columns(2)
+    if col_save.button("保存", use_container_width=True):
+        api_post("/api/model-config", {"base_url": base_url, "model": model, "api_key": api_key})
+        st.session_state.flash = "模型设置已保存"
+        st.rerun()
+    if col_test.button("测试连接", use_container_width=True):
+        result = api_post("/api/model-config/test", {"base_url": base_url, "model": model, "api_key": api_key})
+        if result.get("ok"):
+            st.success(f"{result['message']}（{result.get('latency_ms', 0)} ms）")
+            if result.get("base_url") and result["base_url"] != base_url.rstrip("/"):
+                st.info(f"建议把 Base URL 填为 {result['base_url']}")
+        else:
+            st.error(result.get("message", "连接失败"))
+
+    if config["api_key_set"]:
+        if st.button("清除已保存的密钥", use_container_width=True):
+            api_delete("/api/model-config/api-key")
+            st.session_state.flash = "已清除密钥"
+            st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# 会话发送
+# ---------------------------------------------------------------------------
+
+def send_message(text: str) -> None:
+    st.session_state.messages.append({"role": "user", "content": text})
+    try:
+        with st.spinner("正在挑选…"):
+            data = api_post("/api/chat", {"user_id": USER_ID, "message": text})
+        reply = data.get("reply", "")
+        recommendations = data.get("recommendations") or []
+    except requests.RequestException as exc:
+        reply, recommendations = f"后端服务连接失败：{exc}", []
+    st.session_state.messages.append(
+        {"role": "assistant", "content": reply, "recommendations": recommendations}
+    )
+    st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# 页面
+# ---------------------------------------------------------------------------
+
+refresh_state()
+try:
+    model_config = api_get("/api/model-config")
+except requests.RequestException:
+    model_config = {"api_key_set": False, "source": "none"}
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+st.markdown(
+    '<div class="brand">'
+    f"{icon('bag', 22)}"
+    '<span class="brand-name">小购</span>'
+    "</div>"
+    '<div class="brand-sub">告诉我你的需求，我来替你挑商品、管购物车、盯支付时间。</div>',
+    unsafe_allow_html=True,
+)
 
-if user_input := st.chat_input("输入你的购物需求…"):
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
+chat_column, panel_column = st.columns([2.35, 1.0], gap="large")
 
-    with st.chat_message("assistant"):
-        with st.spinner("小购思考中…"):
-            try:
-                data = api_post("/api/chat", {"user_id": USER_ID, "message": user_input})
-                reply = data.get("reply", "服务暂时没有返回内容，请稍后再试。")
-            except requests.RequestException as exc:
-                reply = f"无法连接后端服务（{exc}），请确认已在 8000 端口启动 API。"
-        st.markdown(reply)
+# ---- 左列：会话 ----
+with chat_column:
+    if flash := st.session_state.pop("flash", None):
+        st.markdown(f'<div class="note">{html.escape(flash)}</div>', unsafe_allow_html=True)
 
-    st.session_state.messages.append({"role": "assistant", "content": reply})
-    st.rerun()
+    if not st.session_state.messages:
+        st.markdown(
+            f'<div class="note">{icon("search", 15)} 不知道从哪开始？点下面任意一句试试：</div>',
+            unsafe_allow_html=True,
+        )
+        samples = [
+            "预算 500 以内，想要一副降噪蓝牙耳机",
+            "给爸爸买个 300 元左右的电饭煲",
+            "想要一台轻薄笔记本，预算 6000 上下",
+        ]
+        for sample in samples:
+            if st.button(sample, key=f"sample-{sample}"):
+                send_message(sample)
+
+    for message in st.session_state.messages:
+        if message["role"] == "user":
+            st.markdown(f'<div class="msg-user">{html.escape(message["content"])}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="msg-bot">{html.escape(message["content"])}</div>', unsafe_allow_html=True)
+            render_cards(message.get("recommendations") or [])
+
+# ---- 右列：购物车 / 订单 / 提醒 / 设置 ----
+with panel_column:
+    panel = st.container(border=True)
+    with panel:
+        st.markdown(
+            f'<div class="section">{icon("cart", 16)}购物车</div>', unsafe_allow_html=True
+        )
+        cart = st.session_state.get("cart", {"items": [], "total": 0})
+        if cart["items"]:
+            for item in cart["items"]:
+                st.markdown(
+                    f'<div class="row"><span>{html.escape(item["name"])} × {item["quantity"]}</span>'
+                    f"<span>{money(item['subtotal'])}</span></div>",
+                    unsafe_allow_html=True,
+                )
+            st.markdown(
+                f'<div class="total"><span>合计</span><span>{money(cart["total"])}</span></div>',
+                unsafe_allow_html=True,
+            )
+            if st.button("结算", use_container_width=True):
+                reply = api_post("/api/chat", {"user_id": USER_ID, "message": "帮我结算购物车"}).get("reply", "")
+                st.session_state.messages.append({"role": "user", "content": "帮我结算购物车"})
+                st.session_state.messages.append({"role": "assistant", "content": reply})
+                st.rerun()
+        else:
+            st.markdown('<div class="hint">购物车是空的</div>', unsafe_allow_html=True)
+
+        st.markdown(
+            f'<div class="section">{icon("box", 16)}订单</div>', unsafe_allow_html=True
+        )
+        orders = st.session_state.get("orders", [])
+        if not orders:
+            st.markdown('<div class="hint">暂无订单</div>', unsafe_allow_html=True)
+        status_meta = {
+            "pending_payment": ("warn", "待支付"),
+            "paid": ("ok", "已支付"),
+            "expired": ("bad", "已超时"),
+        }
+        for order in orders:
+            css_class, label = status_meta[order["status"]]
+            st.markdown(
+                f'<div class="row"><span>#{order["id"]} &nbsp;{money(order["total_price"])}</span>'
+                f'<span class="status"><i class="dot {css_class}"></i>{label}</span></div>',
+                unsafe_allow_html=True,
+            )
+            if order["status"] == "pending_payment":
+                if st.button(f"支付 #{order['id']}", key=f"pay-{order['id']}", use_container_width=True):
+                    api_post("/api/orders/pay", {"user_id": USER_ID, "order_id": order["id"]})
+                    st.session_state.flash = f"订单 #{order['id']} 支付成功"
+                    st.rerun()
+
+        st.markdown(
+            f'<div class="section">{icon("bell", 16)}提醒</div>', unsafe_allow_html=True
+        )
+        reminders = st.session_state.get("reminders", [])
+        if reminders:
+            for reminder in reminders:
+                st.markdown(f'<div class="note">{html.escape(reminder["message"])}</div>', unsafe_allow_html=True)
+            if st.button("全部标为已读", use_container_width=True):
+                api_post("/api/reminders/read", {"user_id": USER_ID})
+                st.rerun()
+        else:
+            st.markdown('<div class="hint">暂无新提醒</div>', unsafe_allow_html=True)
+
+        st.markdown(
+            f'<div class="hint" style="display:flex;align-items:center;gap:6px;margin-top:12px;">'
+            f'<i class="dot {"ok" if model_config["api_key_set"] else "bad"}"></i>'
+            f'模型接口{"已就绪" if model_config["api_key_set"] else "未配置"}</div>',
+            unsafe_allow_html=True,
+        )
+        if st.button("设置", key="open-settings", use_container_width=True):
+            st.session_state.show_settings = True
+
+# ---- 弹窗与输入 ----
+if st.session_state.pop("show_settings", False):
+    show_settings_dialog()
+if st.session_state.get("detail_id"):
+    show_product_dialog(st.session_state["detail_id"])
+
+if user_input := st.chat_input("说说你想要什么…"):
+    send_message(user_input)

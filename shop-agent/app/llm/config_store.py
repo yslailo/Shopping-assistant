@@ -1,33 +1,46 @@
 """模型连接配置的运行时存储。
 
 在网页端填写任意 OpenAI 兼容接口的 Base URL / API Key / 模型名，
-保存在 SQLite 的 app_settings 表中，保存后立即生效，无需重启服务。
-环境变量（.env）只作为未配置时的默认值，不再是唯一入口。
+保存后立即生效，无需重启服务。环境变量（.env）只作为未配置时的默认值。
+
+配置单独存放在项目根目录的 model_config.json 中，与业务数据库分离：
+清空/重建演示数据不会连带丢失模型配置。
 """
 
-from app.config import settings
-from app.db.database import get_conn
+import json
+import os
+import threading
 
-KEY_BASE_URL = "llm.base_url"
-KEY_API_KEY = "llm.api_key"
-KEY_MODEL = "llm.model"
+from app.config import BASE_DIR, settings
+
+CONFIG_PATH = BASE_DIR / "model_config.json"
+_lock = threading.Lock()
+
+
+def _read_file() -> dict:
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        with CONFIG_PATH.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_file(data: dict) -> None:
+    tmp_path = str(CONFIG_PATH) + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, CONFIG_PATH)  # 原子替换，避免写入中断导致配置损坏
 
 
 def get_model_config() -> dict:
     """读取当前生效的模型配置；api_key 为明文，仅供后端内部使用。"""
-    stored: dict[str, str] = {}
-    try:
-        with get_conn() as conn:
-            rows = conn.execute(
-                "SELECT key, value FROM app_settings WHERE key IN (?, ?, ?)",
-                (KEY_BASE_URL, KEY_API_KEY, KEY_MODEL),
-            ).fetchall()
-        stored = {row["key"]: row["value"] for row in rows}
-    except Exception:
-        stored = {}  # 库表尚未初始化时退回环境变量默认值
-
-    runtime_key = stored.get(KEY_API_KEY, "")
+    stored = _read_file()
+    runtime_key = str(stored.get("api_key") or "").strip()
     env_key = settings.llm_api_key
+
     if runtime_key:
         source = "runtime"
     elif env_key:
@@ -36,9 +49,9 @@ def get_model_config() -> dict:
         source = "none"
 
     return {
-        "base_url": stored.get(KEY_BASE_URL) or settings.llm_base_url,
+        "base_url": str(stored.get("base_url") or settings.llm_base_url),
         "api_key": runtime_key or env_key,
-        "model": stored.get(KEY_MODEL) or settings.llm_model,
+        "model": str(stored.get("model") or settings.llm_model),
         "source": source,
     }
 
@@ -66,27 +79,22 @@ def save_model_config(
     model: str = "",
 ) -> dict:
     """保存配置。空字段表示保留原值，只更新用户实际填写的项。"""
-    updates: dict[str, str] = {}
-    if base_url.strip():
-        updates[KEY_BASE_URL] = base_url.strip().rstrip("/")
-    if model.strip():
-        updates[KEY_MODEL] = model.strip()
-    if api_key.strip():
-        updates[KEY_API_KEY] = api_key.strip()
-
-    if updates:
-        with get_conn() as conn:
-            conn.executemany(
-                "INSERT INTO app_settings (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
-                "updated_at = datetime('now', 'localtime')",
-                list(updates.items()),
-            )
+    with _lock:
+        data = _read_file()
+        if base_url.strip():
+            data["base_url"] = base_url.strip().rstrip("/")
+        if model.strip():
+            data["model"] = model.strip()
+        if api_key.strip():
+            data["api_key"] = api_key.strip()
+        _write_file(data)
     return public_view()
 
 
 def clear_api_key() -> dict:
     """清除已保存的 API Key（回到环境变量或未配置状态）。"""
-    with get_conn() as conn:
-        conn.execute("DELETE FROM app_settings WHERE key = ?", (KEY_API_KEY,))
+    with _lock:
+        data = _read_file()
+        data.pop("api_key", None)
+        _write_file(data)
     return public_view()
