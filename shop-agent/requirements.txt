@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+openai>=1.30
+pydantic>=2.6
+APScheduler>=3.10
+streamlit>=1.35
+requests>=2.31
+python-dotenv>=1.0
+pytest>=8.0
