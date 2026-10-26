@@ -7,7 +7,9 @@
 """
 
 import html
+import json
 import os
+import time
 import uuid
 
 import requests
@@ -74,11 +76,16 @@ header[data-testid="stHeader"] { background: transparent !important;
 .section svg { color: var(--muted); }
 .rule { height: 1px; background: var(--line); margin: 14px 0; border: 0; }
 
-.msg-user { background: #fff; border: 1px solid var(--line); border-radius: 14px;
-  padding: 12px 16px; margin: 8px 0 8px auto; max-width: 82%;
-  font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
-.msg-bot { font-size: 14.5px; line-height: 1.75; color: #27272a; margin: 10px 0 14px;
-  max-width: 92%; white-space: pre-wrap; }
+.msg-user { background: var(--accent-soft); border: 1px solid #cfe2df; color: #134e4a;
+  border-radius: 16px 16px 5px 16px; padding: 11px 15px; margin: 10px 0 18px auto;
+  max-width: 82%; font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+.msg-bot { background: #fff; border: 1px solid var(--line);
+  border-radius: 16px 16px 16px 5px; padding: 12px 16px; margin: 4px 0 14px;
+  max-width: 92%; font-size: 14.5px; line-height: 1.75; color: #27272a;
+  white-space: pre-wrap; box-shadow: 0 1px 2px rgba(24,24,27,.04); }
+.caret { display: inline-block; width: 2px; height: 1em; background: var(--accent);
+  margin-left: 2px; vertical-align: -2px; animation: caret-blink .8s steps(1) infinite; }
+@keyframes caret-blink { 50% { opacity: 0; } }
 
 /* 商品条目：左图右文，竖向排列，整行点击进入详情 */
 .card-media { height: 84px; border-radius: 12px; background: #f6f6f5;
@@ -376,21 +383,52 @@ def show_settings_dialog() -> None:
 # 会话发送
 # ---------------------------------------------------------------------------
 
+def bot_bubble(text: str, streaming: bool = False) -> str:
+    caret = '<span class="caret"></span>' if streaming else ""
+    return f'<div class="msg-bot">{html.escape(text)}{caret}</div>'
+
+
 def send_message(text: str) -> None:
+    """发送一轮消息；模型正文以 SSE 流式增量渲染到占位气泡里。"""
     st.session_state.messages.append({"role": "user", "content": text})
+    placeholder = st.empty()
+    placeholder.markdown(bot_bubble("", streaming=True), unsafe_allow_html=True)
+
+    accumulated = ""
+    final: dict[str, object] = {}
+    last_paint = 0.0
     try:
-        with st.spinner("正在挑选…"):
-            data = api_post(
-                "/api/chat",
-                {"user_id": USER_ID, "message": text, "session_id": st.session_state.session_id},
-            )
-        reply = data.get("reply", "")
-        recommendations = data.get("recommendations") or []
-    except requests.RequestException as exc:
-        reply, recommendations = f"后端服务连接失败：{exc}", []
+        with requests.post(
+            f"{API_BASE}/api/chat",
+            json={"user_id": USER_ID, "message": text, "session_id": st.session_state.session_id},
+            stream=True,
+            timeout=180,
+        ) as resp:
+            resp.raise_for_status()
+            for raw_line in resp.iter_lines(decode_unicode=True):
+                if not raw_line or not raw_line.startswith("data: "):
+                    continue
+                event = json.loads(raw_line[len("data: "):])
+                if "delta" in event:
+                    accumulated += event["delta"]
+                    # 节流：最快每 80ms 重绘一次，避免高频 token 拖慢 Streamlit
+                    now = time.monotonic()
+                    if now - last_paint >= 0.08:
+                        placeholder.markdown(bot_bubble(accumulated, streaming=True), unsafe_allow_html=True)
+                        last_paint = now
+                elif "done" in event:
+                    final = event["done"]
+        placeholder.markdown(bot_bubble(accumulated or final.get("reply", ""), streaming=False), unsafe_allow_html=True)
+    except (requests.RequestException, ValueError) as exc:
+        final = {"reply": f"对话请求失败：{exc}"}
+
+    reply = final.get("reply") or accumulated
+    recommendations = final.get("recommendations") or []
     st.session_state.messages.append(
         {"role": "assistant", "content": reply, "recommendations": recommendations}
     )
+    if final.get("cart") is not None:
+        st.session_state.cart = final["cart"]
     st.rerun()
 
 
@@ -441,7 +479,7 @@ with chat_column:
         if message["role"] == "user":
             st.markdown(f'<div class="msg-user">{html.escape(message["content"])}</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="msg-bot">{html.escape(message["content"])}</div>', unsafe_allow_html=True)
+            st.markdown(bot_bubble(message["content"]), unsafe_allow_html=True)
             render_cards(message.get("recommendations") or [], key_prefix=str(index))
 
 # ---- 右列：购物车 / 订单 / 提醒 / 设置 ----
@@ -464,17 +502,7 @@ with panel_column:
                 unsafe_allow_html=True,
             )
             if st.button("结算", use_container_width=True):
-                reply = api_post(
-                    "/api/chat",
-                    {
-                        "user_id": USER_ID,
-                        "message": "帮我结算购物车",
-                        "session_id": st.session_state.session_id,
-                    },
-                ).get("reply", "")
-                st.session_state.messages.append({"role": "user", "content": "帮我结算购物车"})
-                st.session_state.messages.append({"role": "assistant", "content": reply})
-                st.rerun()
+                send_message("帮我结算购物车")
         else:
             st.markdown('<div class="hint">购物车是空的</div>', unsafe_allow_html=True)
 

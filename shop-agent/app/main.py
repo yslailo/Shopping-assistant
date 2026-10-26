@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.agent import loop
@@ -115,12 +116,23 @@ def test_model_config(request: ModelConfigRequest) -> dict:
 
 
 @app.post("/api/chat")
-def chat(request: ChatRequest) -> dict:
-    if not llm.available:
-        return {
-            "reply": "系统尚未配置大模型接口，请在左侧「模型设置」中填写 Base URL、模型名和 API Key 后再试。",
-        }
-    return loop.run_turn(request.user_id, request.message, request.session_id)
+def chat(request: ChatRequest):
+    """对话接口：以 SSE 流式返回模型正文增量与最终业务快照。"""
+
+    def events():
+        if not llm.available:
+            note = "系统尚未配置大模型接口，请在右侧「设置」中填写 Base URL、模型名和 API Key 后再试。"
+            yield f"data: {json.dumps({'delta': note})}\n\n"
+            yield f"data: {json.dumps({'done': {'reply': note}})}\n\n"
+            return
+        try:
+            for event in loop.run_turn_stream(request.user_id, request.message, request.session_id):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as exc:  # noqa: BLE001 流内异常无法再改状态码，以 done 事件回传错误
+            note = f"模型调用失败：{type(exc).__name__}: {exc}"
+            yield f"data: {json.dumps({'done': {'reply': note}})}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @app.get("/api/cart")

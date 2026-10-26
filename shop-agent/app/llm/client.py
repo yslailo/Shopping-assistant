@@ -65,6 +65,58 @@ class LLMClient:
         response = client.chat.completions.create(**kwargs)
         return response.choices[0].message
 
+    def stream_chat(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        temperature: float = 0.2,
+    ):
+        """执行一轮流式对话，逐个产出事件字典。
+
+        事件格式：
+        - {"content": "增量文本"}       正文增量，可即时转发给前端
+        - {"tool_calls": [完整调用...]}  本轮结束时若有工具调用则最后产出
+
+        流式响应里 tool_calls 是按 index 分片到达的，这里合并成完整调用，
+        上层拿到的结构与 chat() 返回的 message.tool_calls 语义一致。
+        """
+        config = config_store.get_model_config()
+        if not config["api_key"]:
+            raise RuntimeError("未配置模型 API Key，请在网页左侧「模型设置」中填写后重试")
+
+        client = self._get_client(config)
+        kwargs: dict[str, Any] = {
+            "model": config["model"],
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
+        merged: dict[int, dict] = {}
+        for chunk in client.chat.completions.create(**kwargs):
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield {"content": delta.content}
+            for frag in delta.tool_calls or []:
+                slot = merged.setdefault(
+                    frag.index or 0,
+                    {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
+                )
+                if frag.id:
+                    slot["id"] = frag.id
+                if frag.function:
+                    if frag.function.name:
+                        slot["function"]["name"] += frag.function.name
+                    if frag.function.arguments:
+                        slot["function"]["arguments"] += frag.function.arguments
+        if merged:
+            yield {"tool_calls": [merged[index] for index in sorted(merged)]}
+
     def test_connection(
         self,
         base_url: str = "",

@@ -17,21 +17,15 @@ from app.db import database, seed
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "testdata")
 
 
-class _FakeMessage:
-    def __init__(self, content: str):
-        self.content = content
-        self.tool_calls = None
-
-
 class _FakeLLM:
-    """记录每轮送给模型的消息列表，返回固定文本，不产生工具调用。"""
+    """记录每轮送给模型的消息列表；以流式事件形式返回固定文本，不产生工具调用。"""
 
     def __init__(self):
         self.prompts: list[list[dict]] = []
 
-    def chat(self, messages, tools=None):
+    def stream_chat(self, messages, tools=None):
         self.prompts.append(list(messages))
-        return _FakeMessage("好的")
+        yield {"content": "好的"}
 
 
 @pytest.fixture()

@@ -27,23 +27,16 @@ def _session_key(user_id: int, session_id: str) -> str:
     return session_id.strip() if session_id and session_id.strip() else f"user:{user_id}"
 
 
-def _serialize_tool_calls(message) -> list[dict]:
-    """把 SDK 返回的 tool_calls 转为可回传给接口的字典。"""
-    return [
-        {
-            "id": call.id,
-            "type": "function",
-            "function": {
-                "name": call.function.name,
-                "arguments": call.function.arguments,
-            },
-        }
-        for call in (message.tool_calls or [])
-    ]
+def run_turn_stream(user_id: int, user_message: str, session_id: str = ""):
+    """流式处理一轮用户输入，产出事件字典。
 
+    事件格式：
+    - {"delta": "文本增量"}          正文 token，可直接推给前端渲染
+    - {"done": {...}}               结束时的业务快照（回复/购物车/推荐/提醒）
 
-def run_turn(user_id: int, user_message: str, session_id: str = "") -> dict:
-    """处理一轮用户输入，返回回复与最新业务状态。"""
+    工具调用轮次不产生 delta 之外的额外事件：模型决定调用工具前若已输出
+    文本，那些文本已经流给前端，最终回复会把它们一并计入历史。
+    """
     cart_service.refresh_order_status()  # 每轮先推进订单状态，保证上下文准确
 
     session_key = _session_key(user_id, session_id)
@@ -55,35 +48,47 @@ def run_turn(user_id: int, user_message: str, session_id: str = "") -> dict:
     messages: list[dict] = [{"role": "system", "content": build_system_prompt(user_id)}]
     messages.extend(history[-HISTORY_LIMIT:])
 
-    reply = ""
+    reply_parts: list[str] = []
     for _step in range(MAX_STEPS):
-        message = llm.chat(messages, tools=tools.TOOL_SCHEMAS)
+        round_content: list[str] = []
+        round_tool_calls = None
+        for event in llm.stream_chat(messages, tools=tools.TOOL_SCHEMAS):
+            if "content" in event:
+                round_content.append(event["content"])
+                yield {"delta": event["content"]}
+            elif "tool_calls" in event:
+                round_tool_calls = event["tool_calls"]
 
-        if not message.tool_calls:
-            reply = (message.content or "").strip()
-            break
+        text = "".join(round_content)
+        reply_parts.append(text)
+        if not round_tool_calls:
+            break  # 没有工具调用说明是最终回复
 
-        messages.append(
-            {
-                "role": "assistant",
-                "content": message.content or "",
-                "tool_calls": _serialize_tool_calls(message),
-            }
-        )
-        for call in message.tool_calls:
-            result = tools.execute_tool(user_id, call.function.name, call.function.arguments, session_key)
-            messages.append(
-                {"role": "tool", "tool_call_id": call.id, "content": result}
-            )
+        messages.append({"role": "assistant", "content": text, "tool_calls": round_tool_calls})
+        for call in round_tool_calls:
+            result = tools.execute_tool(user_id, call["function"]["name"], call["function"]["arguments"], session_key)
+            messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
 
+    reply = "".join(reply_parts).strip()
     if not reply:
         reply = "抱歉，这一轮没有处理成功，请换个说法再试一次。"
 
     history.append({"role": "assistant", "content": reply})
 
-    return {
-        "reply": reply,
-        "cart": cart_service.get_cart(user_id),
-        "recommendations": tools.get_last_recommendations(session_key),
-        "reminders": cart_service.list_reminders(user_id, unread_only=True),
+    yield {
+        "done": {
+            "reply": reply,
+            "cart": cart_service.get_cart(user_id),
+            "recommendations": tools.get_last_recommendations(session_key),
+            "reminders": cart_service.list_reminders(user_id, unread_only=True),
+        }
     }
+
+
+def run_turn(user_id: int, user_message: str, session_id: str = "") -> dict:
+    """非流式封装：跑完整个回合，只返回最终业务快照。"""
+    final: dict = {}
+    for event in run_turn_stream(user_id, user_message, session_id):
+        if "done" in event:
+            final = event["done"]
+    return final
