@@ -42,12 +42,18 @@ html, body, [class*="st-"] {
   color: var(--ink);
 }
 /* Streamlit 的 Material Symbols 图标字体在本机不可用，密码框的眼睛按钮会露出
-   原始图标名 "visibility"。隐藏图标文本，按输入框类型注入中文状态标签。 */
+   原始图标名 "visibility"。隐藏图标文本，改用内联 SVG 绘制小眼睛图标，
+   不依赖任何字体文件；背景图按输入框类型切换开眼/闭眼两态。 */
 [data-testid="stIconMaterial"] { font-size: 0 !important; }
-[data-testid="stTextInputRootElement"]:has(input[type="password"]) [data-testid="stIconMaterial"]::before {
-  content: "显示"; font-size: 11px; color: var(--muted); letter-spacing: 0.05em; }
+[data-testid="stTextInputRootElement"]:has(input[type="password"]) [data-testid="stIconMaterial"]::before,
 [data-testid="stTextInputRootElement"]:has(input[type="text"]) [data-testid="stIconMaterial"]::before {
-  content: "隐藏"; font-size: 11px; color: var(--accent); letter-spacing: 0.05em; }
+  content: ""; display: inline-block; width: 17px; height: 17px; vertical-align: -4px;
+  background: center / contain no-repeat; transition: filter .15s ease; }
+[data-testid="stTextInputRootElement"] [data-testid="stIconMaterial"]:hover::before { filter: brightness(.55); }
+[data-testid="stTextInputRootElement"]:has(input[type="password"]) [data-testid="stIconMaterial"]::before {
+  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M2.6 12S6.1 5.6 12 5.6 21.4 12 21.4 12 17.9 18.4 12 18.4 2.6 12 2.6 12z'/><circle cx='12' cy='12' r='2.9'/></svg>"); }
+[data-testid="stTextInputRootElement"]:has(input[type="text"]) [data-testid="stIconMaterial"]::before {
+  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2318181b' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M2.6 12S6.1 5.6 12 5.6 21.4 12 21.4 12 17.9 18.4 12 18.4 2.6 12 2.6 12z'/><circle cx='12' cy='12' r='2.9'/><path d='M4.2 3.8 19.8 19.4'/></svg>"); }
 .stApp { background: var(--bg); }
 .block-container { padding-top: 4.2rem; padding-bottom: 5rem; max-width: 1240px; }
 #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"],
