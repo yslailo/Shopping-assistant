@@ -36,9 +36,13 @@ html, body, [class*="st-"] {
   color: var(--ink);
 }
 .stApp { background: var(--bg); }
-.block-container { padding-top: 2rem; padding-bottom: 5rem; max-width: 1240px; }
+.block-container { padding-top: 4.2rem; padding-bottom: 5rem; max-width: 1240px; }
 #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"],
 [data-testid="stStatusWidget"] { visibility: hidden; }
+/* Streamlit 顶栏：默认是不透明的固定白条，会盖住页面顶部内容，置为透明并放行点击 */
+header[data-testid="stHeader"] { background: transparent !important;
+  box-shadow: none !important; pointer-events: none; }
+[data-testid="stAppDeployButton"], [data-testid="stAppDeployButtonContainer"] { display: none !important; }
 
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand svg { color: var(--ink); }

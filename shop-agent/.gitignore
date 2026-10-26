@@ -25,6 +25,9 @@ _chat_probe.py
 _shot_probe.py
 _diag*.py
 _width_probe.py
+_top_probe.py
+top*.log
+top_check*.png
 probe.log
 diag*.log
 chat_test.log
