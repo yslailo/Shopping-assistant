@@ -322,11 +322,24 @@ def show_settings_dialog() -> None:
     )
     base_url = st.text_input("Base URL", value=config["base_url"], placeholder="https://api.deepseek.com/v1")
     model = st.text_input("模型名", value=config["model"], placeholder="deepseek-chat")
-    api_key = st.text_input(
+    # 已保存的密钥回显真实值并默认圆点遮盖，点眼睛即可核对；
+    # 拉取失败时退回打码占位显示，不影响保存链路。
+    filled_key = ""
+    if config["api_key_set"]:
+        try:
+            filled_key = api_get("/api/model-config/reveal").get("api_key", "")
+        except requests.RequestException:
+            filled_key = config["api_key_masked"]
+    api_key_input = st.text_input(
         "API Key",
+        value=filled_key,
         type="password",
-        placeholder=f"已保存 {config['api_key_masked']}" if config["api_key_set"] else "sk-...",
+        placeholder="sk-...",
+        help="默认圆点遮盖，点右侧眼睛查看完整密钥；想更换就清空后粘贴新的，"
+             "留空保存则保留原密钥。",
     )
+    # 输入框未被改动时提交空串，让后端保留原密钥，避免把回显值重复写回
+    api_key = "" if api_key_input == filled_key else api_key_input
     source_label = {"runtime": "页面设置", "env": "环境变量", "none": "无"}[config["source"]]
     st.markdown(
         f'<div class="hint">当前状态：{"已配置" if config["api_key_set"] else "未配置"}'

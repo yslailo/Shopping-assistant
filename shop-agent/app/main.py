@@ -78,6 +78,16 @@ def get_model_config() -> dict:
     return config_store.public_view()
 
 
+@app.get("/api/model-config/reveal")
+def reveal_model_config() -> dict:
+    """供设置弹窗回显完整密钥，便于用户核对与编辑。
+
+    本服务仅监听 127.0.0.1、单用户本机使用，密钥本就保存在本机文件；
+    列表与状态展示接口（/api/model-config）仍然只返回打码视图。
+    """
+    return {"api_key": config_store.get_model_config()["api_key"]}
+
+
 @app.post("/api/model-config")
 def save_model_config(request: ModelConfigRequest) -> dict:
     """保存模型配置，立即生效，无需重启。"""
