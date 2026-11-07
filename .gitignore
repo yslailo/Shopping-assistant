@@ -4,6 +4,9 @@ __pycache__/
 .pytest_cache/
 pytest-cache-files-*/
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 testdata/
 model_config.json
 model_config.json.tmp
@@ -11,6 +14,7 @@ model_config.json.tmp
 # 环境与依赖
 .env
 .venv/
+venv/
 .deps/
 .tmp/
 testtmp*/
@@ -20,10 +24,23 @@ pip-ephem-wheel-cache-*/
 pip-install-*/
 pip-unpack-*/
 
-# 调试临时文件（诊断脚本 / 截图 / 日志统一以下划线前缀命名）
+# IDE / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 调试临时文件（诊断脚本 / 截图 / 日志统一下划线前缀）
 _*probe*.py
 _*.png
 _*.log
+_*.txt
 *.log
 probe*/
 .probe*/
+.acl-recovery/
+
+# 数据导入中间产物
+data/cache/
+data/raw/
