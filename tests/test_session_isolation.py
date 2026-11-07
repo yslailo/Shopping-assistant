@@ -23,7 +23,7 @@ class _FakeLLM:
     def __init__(self):
         self.prompts: list[list[dict]] = []
 
-    def stream_chat(self, messages, tools=None):
+    def stream_chat(self, messages, tools=None, **kwargs):
         self.prompts.append(list(messages))
         yield {"content": "好的"}
 

@@ -52,7 +52,7 @@ def run_turn_stream(user_id: int, user_message: str, session_id: str = ""):
     for _step in range(MAX_STEPS):
         round_content: list[str] = []
         round_tool_calls = None
-        for event in llm.stream_chat(messages, tools=tools.TOOL_SCHEMAS):
+        for event in llm.stream_chat(messages, tools=tools.TOOL_SCHEMAS, purpose="agent"):
             if "content" in event:
                 round_content.append(event["content"])
                 yield {"delta": event["content"]}

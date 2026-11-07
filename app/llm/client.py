@@ -14,7 +14,7 @@ import re
 import time
 from typing import Any
 
-from app.llm import config_store
+from app.llm import config_store, stats
 
 
 class LLMClient:
@@ -47,6 +47,7 @@ class LLMClient:
         messages: list[dict],
         tools: list[dict] | None = None,
         temperature: float = 0.2,
+        purpose: str = "chat",
     ) -> Any:
         """执行一轮对话，返回首条 assistant 消息对象。"""
         config = config_store.get_model_config()
@@ -62,7 +63,22 @@ class LLMClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-        response = client.chat.completions.create(**kwargs)
+        started = time.perf_counter()
+        try:
+            response = client.chat.completions.create(**kwargs)
+        except Exception:
+            stats.record(
+                config["model"], 0, 0, (time.perf_counter() - started) * 1000, purpose, ok=False
+            )
+            raise
+        usage = getattr(response, "usage", None)
+        stats.record(
+            config["model"],
+            getattr(usage, "prompt_tokens", 0) or 0,
+            getattr(usage, "completion_tokens", 0) or 0,
+            (time.perf_counter() - started) * 1000,
+            purpose,
+        )
         return response.choices[0].message
 
     def stream_chat(
@@ -70,6 +86,7 @@ class LLMClient:
         messages: list[dict],
         tools: list[dict] | None = None,
         temperature: float = 0.2,
+        purpose: str = "chat",
     ):
         """执行一轮流式对话，逐个产出事件字典。
 
@@ -79,6 +96,7 @@ class LLMClient:
 
         流式响应里 tool_calls 是按 index 分片到达的，这里合并成完整调用，
         上层拿到的结构与 chat() 返回的 message.tool_calls 语义一致。
+        开启 include_usage 后，服务端会在最后一片里附带 token 用量。
         """
         config = config_store.get_model_config()
         if not config["api_key"]:
@@ -90,30 +108,48 @@ class LLMClient:
             "messages": messages,
             "temperature": temperature,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
 
         merged: dict[int, dict] = {}
-        for chunk in client.chat.completions.create(**kwargs):
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta.content:
-                yield {"content": delta.content}
-            for frag in delta.tool_calls or []:
-                slot = merged.setdefault(
-                    frag.index or 0,
-                    {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
-                )
-                if frag.id:
-                    slot["id"] = frag.id
-                if frag.function:
-                    if frag.function.name:
-                        slot["function"]["name"] += frag.function.name
-                    if frag.function.arguments:
-                        slot["function"]["arguments"] += frag.function.arguments
+        usage = None
+        started = time.perf_counter()
+        try:
+            for chunk in client.chat.completions.create(**kwargs):
+                if getattr(chunk, "usage", None):
+                    usage = chunk.usage  # 末片带用量，覆盖式记录
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    yield {"content": delta.content}
+                for frag in delta.tool_calls or []:
+                    slot = merged.setdefault(
+                        frag.index or 0,
+                        {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
+                    )
+                    if frag.id:
+                        slot["id"] = frag.id
+                    if frag.function:
+                        if frag.function.name:
+                            slot["function"]["name"] += frag.function.name
+                        if frag.function.arguments:
+                            slot["function"]["arguments"] += frag.function.arguments
+        except Exception:
+            stats.record(
+                config["model"], 0, 0, (time.perf_counter() - started) * 1000, purpose, ok=False
+            )
+            raise
+        stats.record(
+            config["model"],
+            getattr(usage, "prompt_tokens", 0) or 0,
+            getattr(usage, "completion_tokens", 0) or 0,
+            (time.perf_counter() - started) * 1000,
+            purpose,
+        )
         if merged:
             yield {"tool_calls": [merged[index] for index in sorted(merged)]}
 

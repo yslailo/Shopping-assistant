@@ -67,26 +67,26 @@ def _keyword_terms(keyword: str) -> list[str]:
 
 def recall(hard: HardConstraints, keyword: str = "", limit: int = RECALL_LIMIT) -> list[dict]:
     """按硬约束做 SQL 过滤；无品类时退化为关键词匹配商品名、类目路径与描述。"""
-    sql = (
-        "SELECT id, name, category, brand, price, specs, features, rating, stock, description, "
-        "category_path, image "
-        "FROM products WHERE stock > 0"
+    columns = (
+        "id, name, category, brand, price, specs, features, rating, stock, description, "
+        "category_path, image, asin"
     )
+    conditions = ["stock > 0"]
     params: list = []
 
     if hard.category:
         # 类目字段是二级类目，且平台归类本身有噪声（蓝牙耳机可能挂在「音箱/音响」下），
         # 所以品类约束做成「类目等值 或 完整类目路径包含 或 标题包含」，仍属确定性过滤
-        sql += " AND (category = ? OR category_path LIKE ? OR name LIKE ?)"
+        conditions.append("(category = ? OR category_path LIKE ? OR name LIKE ?)")
         params.extend([hard.category, f"%{hard.category}%", f"%{hard.category}%"])
     if hard.brand_in:
-        sql += " AND brand IN (%s)" % ",".join("?" * len(hard.brand_in))
+        conditions.append("brand IN (%s)" % ",".join("?" * len(hard.brand_in)))
         params.extend(hard.brand_in)
     if hard.price_min is not None:
-        sql += " AND price >= ?"
+        conditions.append("price >= ?")
         params.append(hard.price_min)
     if hard.price_max is not None:
-        sql += " AND price <= ?"
+        conditions.append("price <= ?")
         params.append(hard.price_max)
 
     relevance = "0"
@@ -96,7 +96,7 @@ def recall(hard: HardConstraints, keyword: str = "", limit: int = RECALL_LIMIT) 
             # 没有类目硬约束时才用关键词收窄结果，否则会把类目内的正品误杀。
             # 标题/类目至少命中一个检索词，避免只在长描述里"蹭"到关键词的商品混进来。
             strong = " OR ".join("(name LIKE ? OR category_path LIKE ?)" for _ in terms)
-            sql += f" AND ({strong})"
+            conditions.append(f"({strong})")
             for term in terms:
                 like = f"%{term}%"
                 params.extend([like, like])
@@ -108,16 +108,13 @@ def recall(hard: HardConstraints, keyword: str = "", limit: int = RECALL_LIMIT) 
             for t in terms
         )
 
-    sql += f" ORDER BY relevance_score DESC, rating DESC LIMIT ?"
-    params.append(limit)
-
     # relevance 用命名别名参与排序，避免纯数字表达式被 SQLite 当成列序号
-    sql = sql.replace(
-        "SELECT id, name, category, brand, price, specs, features, rating, stock, description, "
-        "category_path, image ",
-        f"SELECT id, name, category, brand, price, specs, features, rating, stock, description, "
-        f"category_path, image, ({relevance}) AS relevance_score ",
+    sql = (
+        f"SELECT {columns}, ({relevance}) AS relevance_score FROM products "
+        f"WHERE {' AND '.join(conditions)} "
+        "ORDER BY relevance_score DESC, rating DESC LIMIT ?"
     )
+    params.append(limit)
 
     with get_conn() as conn:
         rows = conn.execute(sql, params).fetchall()
@@ -159,6 +156,7 @@ def _score_prompt(constraints: list[tuple[str, str, str]], candidates: list[dict
             {"role": "user", "content": f"约束列表：\n{constraint_lines}\n\n候选商品：\n{candidate_lines}"},
         ],
         temperature=0.0,
+        purpose="scoring",
     )
     result = extract_json(message.content)
     if not isinstance(result, list):
@@ -257,12 +255,44 @@ def _build_items(
 # 主入口
 # ---------------------------------------------------------------------------
 
+def _baseline_popularity(query: str, top_k: int) -> RecommendResult:
+    """下界基线：不用硬约束过滤、不用软约束打分，只按口碑取前 K。
+
+    用于消融实验说明"硬约束过滤 + 软约束打分"各自贡献了多少。
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, name, category, brand, price, specs, features, rating, stock, description, "
+            "category_path, image, asin FROM products WHERE stock > 0 ORDER BY rating DESC LIMIT ?",
+            (top_k,),
+        ).fetchall()
+    items = [
+        RecommendItem(
+            product=dict(row),
+            score=dict(row)["rating"] / 5.0,
+            reason="按用户口碑排序",
+        )
+        for row in rows
+    ]
+    return RecommendResult(
+        mode="ok",
+        items=items,
+        summary=f"未使用约束，仅按口碑取前 {len(items)} 款。",
+    )
+
 def recommend(
     query: str,
     filters: HardConstraints | None = None,
     top_k: int = TOP_K,
+    scoring: str = "llm",
 ) -> RecommendResult:
-    """执行完整的选品流水线。filters 中的显式约束优先于解析结果。"""
+    """执行完整的选品流水线。filters 中的显式约束优先于解析结果。
+
+    scoring 用于消融实验：
+    - "llm"       硬约束召回 + 大模型软约束打分（完整方法）
+    - "heuristic" 硬约束召回 + 规则关键词打分（去掉模型）
+    - "none"      不做硬约束过滤、不排序，直接按口碑取前 K（下界基线）
+    """
     intent = parse_intent(query)
     hard = intent.hard
     if filters:
@@ -270,6 +300,9 @@ def recommend(
         for key, value in filters.model_dump(exclude_none=True).items():
             hard[key] = value
         hard = HardConstraints.model_validate(hard)
+
+    if scoring == "none":
+        return _baseline_popularity(query, top_k)
 
     if intent.intent == "chitchat":
         return RecommendResult(mode="clarification", question="这看起来不是购物需求，请问你想买点什么？")
@@ -292,13 +325,17 @@ def recommend(
     candidates = candidates[:SCORE_LIMIT]
 
     if constraints:
-        if llm.available:
+        use_llm = scoring == "llm" and llm.available
+        degraded = False
+        if use_llm:
             try:
                 score_result = _score_prompt(constraints, candidates)
-            except (RuntimeError, ValueError):
+            except Exception:  # noqa: BLE001 网络超时、鉴权失败、输出不是 JSON 都降级
                 score_result = _heuristic_scores(constraints, candidates)
+                degraded = True
         else:
             score_result = _heuristic_scores(constraints, candidates)
+            degraded = scoring == "llm"
         items = _build_items(constraints, candidates, score_result)
     else:
         # 没有软约束时按口碑（评分）排序，结果同样可解释

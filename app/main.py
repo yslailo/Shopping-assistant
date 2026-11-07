@@ -13,7 +13,7 @@ from app.cart import service as cart_service
 from app.config import settings
 from app.db import database, seed
 from app.db.database import get_conn
-from app.llm import config_store
+from app.llm import config_store, stats
 from app.llm.client import llm
 from app.reminder import scheduler
 
@@ -196,3 +196,23 @@ def get_reminders(user_id: int = DEFAULT_USER_ID, unread_only: bool = True) -> d
 @app.post("/api/reminders/read")
 def read_reminders(user_id: int = DEFAULT_USER_ID) -> dict:
     return {"marked": cart_service.mark_reminders_read(user_id)}
+
+
+@app.get("/api/stats")
+def get_stats() -> dict:
+    """模型调用统计：次数、token 用量、平均与 P95 延迟。"""
+    return stats.summary()
+
+
+@app.post("/api/stats/reset")
+def reset_stats() -> dict:
+    stats.reset()
+    return {"ok": True}
+
+
+@app.get("/api/eval/tasks")
+def eval_task_count() -> dict:
+    """评测任务集规模，供界面显示"可复现的评测有多少条"。"""
+    with get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) AS c FROM eval_tasks").fetchone()
+    return {"total": row["c"] if row else 0}

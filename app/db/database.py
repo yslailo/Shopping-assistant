@@ -76,6 +76,18 @@ CREATE TABLE IF NOT EXISTS reminders (
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status, deadline);
+
+-- 评测任务集：人工标注需求 + 目标商品 asin，用于 Hit@K / MRR 等指标计算
+CREATE TABLE IF NOT EXISTS eval_tasks (
+    task_id        TEXT PRIMARY KEY,
+    instruction    TEXT NOT NULL,
+    target_asin    TEXT NOT NULL,
+    category       TEXT NOT NULL DEFAULT '',
+    price_min      REAL,
+    price_max      REAL,
+    attributes     TEXT NOT NULL DEFAULT '[]',
+    exclude_brands TEXT NOT NULL DEFAULT '[]'
+);
 """
 
 # 老库迁移：products 表后加的列按需补上（SQLite 的 ADD COLUMN 不幂等判断，用 PRAGMA 探测）

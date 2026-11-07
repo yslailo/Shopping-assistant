@@ -138,6 +138,7 @@ def parse_intent(text: str) -> UserIntent:
                     {"role": "user", "content": text},
                 ],
                 temperature=0.0,
+                purpose="intent",
             )
             data: dict[str, Any] = extract_json(message.content)
             if data.get("intent") not in _INTENTS:

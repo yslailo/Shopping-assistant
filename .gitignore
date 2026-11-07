@@ -44,3 +44,7 @@ probe*/
 # 数据导入中间产物
 data/cache/
 data/raw/
+llm_usage.json
+_eval_*.json
+_eval_*.log
+_peek_eval.py
