@@ -95,7 +95,8 @@ header[data-testid="stHeader"] { background: transparent !important;
   border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px;
   margin-bottom: 12px; }
 .pcard-thumb { width: 60px; height: 60px; flex: none; border-radius: 10px; background: #f6f6f5;
-  display: flex; align-items: center; justify-content: center; color: #52525b; }
+  display: flex; align-items: center; justify-content: center; color: #52525b; overflow: hidden; }
+.pcard-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pcard-body { flex: 1; min-width: 0; }
 .pcard-title { font-size: 14px; font-weight: 550; line-height: 1.45; color: var(--ink); }
 .pcard-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
@@ -226,6 +227,17 @@ def money(value: float) -> str:
 # 商品卡片
 # ---------------------------------------------------------------------------
 
+def thumb(item: dict, size: int = 30) -> str:
+    """商品缩略图：有真实图片用图片，加载失败或缺失时回退到类目图标。"""
+    image = (item.get("image") or "").strip()
+    if image.startswith("http"):
+        return (
+            f'<img class="pcard-img" src="{html.escape(image, quote=True)}" alt="" '
+            f'loading="lazy" onerror="this.style.display=\'none\'">'
+        )
+    return category_icon(item.get("category", ""), size=size)
+
+
 def render_cards(recommendations: list[dict], key_prefix: str) -> None:
     """把推荐结果渲染成竖向商品条目，点击图片/标题任意处进入详情弹窗。
 
@@ -244,7 +256,7 @@ def render_cards(recommendations: list[dict], key_prefix: str) -> None:
             st.markdown(
                 f"""
                 <div class="pcard">
-                  <div class="pcard-thumb">{category_icon(item["category"], size=30)}</div>
+                  <div class="pcard-thumb">{thumb(item)}</div>
                   <div class="pcard-body">
                     <div class="pcard-title">{html.escape(item["name"])}</div>
                     <div class="pcard-meta">第 {rank} 款 · {html.escape(item["brand"])} · {item["rating"]:.1f} 分</div>
@@ -272,11 +284,21 @@ def show_product_dialog(product_id: int) -> None:
 
     left, right = st.columns([1, 1.6], gap="large")
     with left:
-        st.markdown(
-            f'<div class="card-media" style="height:200px;border-radius:14px;">'
-            f"{category_icon(product['category'], size=72)}</div>",
-            unsafe_allow_html=True,
-        )
+        image = (product.get("image") or "").strip()
+        if image.startswith("http"):
+            st.markdown(
+                f'<div class="card-media" style="height:200px;border-radius:14px;'
+                f'background:#fbfbfa;display:flex;align-items:center;justify-content:center;">'
+                f'<img src="{html.escape(image, quote=True)}" alt="" '
+                f'style="max-width:100%;max-height:100%;object-fit:contain;border-radius:10px;"></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f'<div class="card-media" style="height:200px;border-radius:14px;">'
+                f"{category_icon(product['category'], size=72)}</div>",
+                unsafe_allow_html=True,
+            )
         st.markdown(
             f'<div class="hint" style="margin-top:10px;">{html.escape(product["description"])}</div>',
             unsafe_allow_html=True,

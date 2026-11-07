@@ -145,7 +145,8 @@ def get_product(product_id: int) -> dict:
     """商品详情：供前端卡片弹窗展示完整信息。"""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, name, category, brand, price, specs, features, rating, stock, description "
+            "SELECT id, name, category, category_path, brand, price, specs, features, rating, "
+            "stock, description, shop, image, asin "
             "FROM products WHERE id = ?",
             (product_id,),
         ).fetchone()

@@ -9,6 +9,7 @@
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 
 from app.db.database import get_conn
@@ -44,17 +45,40 @@ class RecommendResult:
 # 阶段一：结构化召回（确定性）
 # ---------------------------------------------------------------------------
 
+def _keyword_terms(keyword: str) -> list[str]:
+    """把查询串切成检索词。
+
+    中文没有空格分词，整串 LIKE（如「降噪耳机」）在商品标题里几乎不可能原样出现，
+    因此对中文片段取 2 字滑窗（降噪 / 噪耳 / 耳机），英文与数字保留整词。
+    """
+    terms: list[str] = []
+    for chunk in re.split(r"[^0-9A-Za-z\u4e00-\u9fa5]+", keyword or ""):
+        if not chunk:
+            continue
+        if len(chunk) <= 2:
+            terms.append(chunk)
+        elif chunk.isascii():
+            terms.append(chunk)
+        else:
+            terms.extend(chunk[i : i + 2] for i in range(len(chunk) - 1))
+    # 去重并丢弃单字词（单字命中噪声大）
+    return list(dict.fromkeys(t for t in terms if len(t) >= 2))
+
+
 def recall(hard: HardConstraints, keyword: str = "", limit: int = RECALL_LIMIT) -> list[dict]:
-    """按硬约束做 SQL 过滤；无品类时退化为关键词匹配商品名与描述。"""
+    """按硬约束做 SQL 过滤；无品类时退化为关键词匹配商品名、类目路径与描述。"""
     sql = (
-        "SELECT id, name, category, brand, price, specs, features, rating, stock, description "
+        "SELECT id, name, category, brand, price, specs, features, rating, stock, description, "
+        "category_path, image "
         "FROM products WHERE stock > 0"
     )
     params: list = []
 
     if hard.category:
-        sql += " AND category = ?"
-        params.append(hard.category)
+        # 类目字段是二级类目，且平台归类本身有噪声（蓝牙耳机可能挂在「音箱/音响」下），
+        # 所以品类约束做成「类目等值 或 完整类目路径包含 或 标题包含」，仍属确定性过滤
+        sql += " AND (category = ? OR category_path LIKE ? OR name LIKE ?)"
+        params.extend([hard.category, f"%{hard.category}%", f"%{hard.category}%"])
     if hard.brand_in:
         sql += " AND brand IN (%s)" % ",".join("?" * len(hard.brand_in))
         params.extend(hard.brand_in)
@@ -64,13 +88,36 @@ def recall(hard: HardConstraints, keyword: str = "", limit: int = RECALL_LIMIT) 
     if hard.price_max is not None:
         sql += " AND price <= ?"
         params.append(hard.price_max)
-    if not hard.category and keyword:
-        sql += " AND (name LIKE ? OR description LIKE ? OR features LIKE ?)"
-        like = f"%{keyword}%"
-        params.extend([like, like, like])
 
-    sql += " ORDER BY rating DESC LIMIT ?"
+    relevance = "0"
+    terms = _keyword_terms(keyword) if keyword else []
+    if terms:
+        if not hard.category:
+            # 没有类目硬约束时才用关键词收窄结果，否则会把类目内的正品误杀。
+            # 标题/类目至少命中一个检索词，避免只在长描述里"蹭"到关键词的商品混进来。
+            strong = " OR ".join("(name LIKE ? OR category_path LIKE ?)" for _ in terms)
+            sql += f" AND ({strong})"
+            for term in terms:
+                like = f"%{term}%"
+                params.extend([like, like])
+        # 命中检索词越多越相关，标题命中权重高于类目与描述
+        relevance = " + ".join(
+            f"(CASE WHEN name LIKE '%{t}%' THEN 3 ELSE 0 END)"
+            f" + (CASE WHEN category_path LIKE '%{t}%' THEN 2 ELSE 0 END)"
+            f" + (CASE WHEN features LIKE '%{t}%' THEN 1 ELSE 0 END)"
+            for t in terms
+        )
+
+    sql += f" ORDER BY relevance_score DESC, rating DESC LIMIT ?"
     params.append(limit)
+
+    # relevance 用命名别名参与排序，避免纯数字表达式被 SQLite 当成列序号
+    sql = sql.replace(
+        "SELECT id, name, category, brand, price, specs, features, rating, stock, description, "
+        "category_path, image ",
+        f"SELECT id, name, category, brand, price, specs, features, rating, stock, description, "
+        f"category_path, image, ({relevance}) AS relevance_score ",
+    )
 
     with get_conn() as conn:
         rows = conn.execute(sql, params).fetchall()

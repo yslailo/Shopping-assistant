@@ -121,6 +121,8 @@ def _format_recommendation(result: pipeline.RecommendResult, session_key: str) -
             "name": item.product["name"],
             "brand": item.product["brand"],
             "category": item.product["category"],
+            "category_path": item.product.get("category_path", ""),
+            "image": item.product.get("image", ""),
             "price": item.product["price"],
             "rating": item.product["rating"],
             "features": [f.strip() for f in item.product["features"].split(",") if f.strip()],

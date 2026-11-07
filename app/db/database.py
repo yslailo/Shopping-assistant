@@ -11,16 +11,20 @@ from app.config import settings
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS products (
-    id          INTEGER PRIMARY KEY,
-    name        TEXT    NOT NULL,
-    category    TEXT    NOT NULL,
-    brand       TEXT    NOT NULL,
-    price       REAL    NOT NULL,
-    specs       TEXT    NOT NULL DEFAULT '{}',
-    features    TEXT    NOT NULL DEFAULT '',
-    rating      REAL    NOT NULL DEFAULT 0,
-    stock       INTEGER NOT NULL DEFAULT 0,
-    description TEXT    NOT NULL DEFAULT ''
+    id            INTEGER PRIMARY KEY,
+    name          TEXT    NOT NULL,
+    category      TEXT    NOT NULL,
+    brand         TEXT    NOT NULL,
+    price         REAL    NOT NULL,
+    specs         TEXT    NOT NULL DEFAULT '{}',
+    features      TEXT    NOT NULL DEFAULT '',
+    rating        REAL    NOT NULL DEFAULT 0,
+    stock         INTEGER NOT NULL DEFAULT 0,
+    description   TEXT    NOT NULL DEFAULT '',
+    category_path TEXT    NOT NULL DEFAULT '',
+    shop          TEXT    NOT NULL DEFAULT '',
+    image         TEXT    NOT NULL DEFAULT '',
+    asin          TEXT    NOT NULL DEFAULT ''
 );
 
 -- 选品召回的硬约束过滤（品类+价格区间）与品牌查询走复合索引；
@@ -74,6 +78,14 @@ CREATE TABLE IF NOT EXISTS reminders (
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders (status, deadline);
 """
 
+# 老库迁移：products 表后加的列按需补上（SQLite 的 ADD COLUMN 不幂等判断，用 PRAGMA 探测）
+_PRODUCT_MIGRATIONS = [
+    ("category_path", "TEXT NOT NULL DEFAULT ''"),
+    ("shop", "TEXT NOT NULL DEFAULT ''"),
+    ("image", "TEXT NOT NULL DEFAULT ''"),
+    ("asin", "TEXT NOT NULL DEFAULT ''"),
+]
+
 
 @contextmanager
 def get_conn(db_path: str | None = None) -> Iterator[sqlite3.Connection]:
@@ -91,7 +103,17 @@ def get_conn(db_path: str | None = None) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """补齐 products 表后续新增的列，兼容旧版本数据库文件。"""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(products)")}
+    for column, ddl in _PRODUCT_MIGRATIONS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE products ADD COLUMN {column} {ddl}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_products_asin ON products (asin)")
+
+
 def init_db(db_path: str | None = None) -> None:
-    """建表（幂等）。"""
+    """建表（幂等），并补齐旧库缺失的列。"""
     with get_conn(db_path) as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
